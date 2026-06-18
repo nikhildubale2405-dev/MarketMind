@@ -1,0 +1,6 @@
+{
+  "name": "MarketMinds",
+  "description": "Trading Journal & Analytics Dashboard with time-based performance analysis, deposits/withdrawals tracking, and AI-powered performance recognition.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
