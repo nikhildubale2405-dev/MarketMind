@@ -316,8 +316,34 @@ export default function AnalyticsDashboardView({
 
   const worstSession = getWorstSession();
 
+  // Overall statistics
+  const overallTotalTrades = trades.length;
+  const overallWins = trades.filter(t => Number(t.profitLoss) > 0).length;
+  const overallLosses = trades.filter(t => Number(t.profitLoss) < 0).length;
+  const overallWinRate = overallTotalTrades > 0 ? (overallWins / overallTotalTrades) * 100 : 0;
+
   return (
     <div id="analytics-grid-workspace" className="space-y-6">
+
+      {/* 0. OVERALL PERFORMANCE METRICS */}
+      <div id="overall-performance-metrics" className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-center items-center text-center">
+          <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Total Trades</span>
+          <span className="text-2xl font-bold font-mono text-white">{overallTotalTrades}</span>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-center items-center text-center">
+          <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Overall Win Rate</span>
+          <span className="text-2xl font-bold font-mono text-emerald-400">{Math.round(overallWinRate)}%</span>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-center items-center text-center">
+          <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Winning Trades</span>
+          <span className="text-2xl font-bold font-mono text-emerald-500">{overallWins}</span>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-center items-center text-center">
+          <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Losing Trades</span>
+          <span className="text-2xl font-bold font-mono text-rose-500">{overallLosses}</span>
+        </div>
+      </div>
       
       {/* 1. THE TRADING CALENDAR VIEW */}
       <div id="calendar-analytics-card" className="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm text-white">

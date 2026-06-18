@@ -176,13 +176,8 @@ export default function AccountabilityGroupsView({ userTrades, userDisplayName }
               return (
                 <div key={idx} className="bg-slate-950 border border-slate-850 p-3 rounded-xl flex items-center justify-between hover:border-slate-750 transition-all">
                   <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <img src={m.avatar} alt={m.name} className="w-9 h-9 rounded-full object-cover border border-slate-800" />
-                      {isFirst && (
-                        <span className="absolute -top-1 -right-1 bg-amber-500 rounded-full p-0.5 text-slate-950 text-[8px] font-bold">
-                          ★
-                        </span>
-                      )}
+                    <div className="w-9 h-9 rounded-full border border-slate-800 bg-slate-900 flex items-center justify-center font-bold text-slate-200">
+                      #{idx + 1}
                     </div>
                     <div>
                       <span className="text-xs font-bold text-slate-200 block">{m.name}</span>

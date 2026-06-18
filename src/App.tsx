@@ -85,9 +85,8 @@ export default function App() {
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
-      // Calculate IST (constant UTC+5:30) offset clock
-      const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-      const ist = new Date(utc + 19800000); // UTC+5:30 = +5.5 hours = +19800000 ms
+      // Calculate IST (constant UTC+5:30) offset clock from UTC time
+      const ist = new Date(now.getTime() + 19800000); // UTC+5:30 = +5.5 hours = +19800000 ms
       const dayName = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][ist.getUTCDay()];
       const monthName = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][ist.getUTCMonth()];
       const day = String(ist.getUTCDate()).padStart(2, "0");
