@@ -17,57 +17,108 @@ export default function TradeHistoryList({
   onDeleteTrade,
   onDeleteTransaction
 }: TradeHistoryListProps) {
-  const [expandedDates, setExpandedDates] = useState<Record<string, boolean>>(() => {
-    // By default, only today's trades are expanded.
-    const d = new Date();
-    const offset = d.getTimezoneOffset();
-    const todayStr = new Date(d.getTime() - (offset * 60 * 1000)).toISOString().split("T")[0];
-    return { [todayStr]: true };
-  });
-
+  const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
+  const [expandedDates, setExpandedDates] = useState<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState<"trades" | "transactions">("trades");
 
-  // Non-blocking inline confirm states for iframe compliance
+  // Non-blocking inline confirm states
   const [confirmDeleteTradeId, setConfirmDeleteTradeId] = useState<string | null>(null);
   const [confirmDeleteTxId, setConfirmDeleteTxId] = useState<string | null>(null);
+
+  const toggleWeek = (weekKey: string) => {
+    setExpandedWeeks(prev => ({
+      ...prev,
+      [weekKey]: prev[weekKey] === undefined ? false : !prev[weekKey]
+    }));
+  };
 
   const toggleDate = (dateStr: string) => {
     setExpandedDates(prev => ({
       ...prev,
-      [dateStr]: !prev[dateStr]
+      [dateStr]: prev[dateStr] === undefined ? false : !prev[dateStr]
     }));
   };
 
-  // Group trades by entryDate
-  const groupTradesByDate = () => {
-    const groups: Record<string, Trade[]> = {};
-    trades.forEach(t => {
-      const date = t.entryDate || "No Date";
-      if (!groups[date]) {
-        groups[date] = [];
-      }
-      groups[date].push(t);
-    });
+  // Helper to compute Monday to Sunday week range for date string YYYY-MM-DD
+  const getWeekInfo = (dateStr: string) => {
+    const d = new Date(dateStr + "T00:00:00");
+    if (isNaN(d.getTime())) {
+      return { weekKey: "9999-99-99", weekLabel: "Other Trades" };
+    }
+    const dayOfWeek = d.getDay(); // 0 = Sun, 1 = Mon...
+    const distToMon = (dayOfWeek + 6) % 7; // Mon = 0, Sun = 6
+    const monday = new Date(d);
+    monday.setDate(monday.getDate() - distToMon);
 
-    // Sort dates by descending order (most recent first)
-    return Object.keys(groups)
-      .sort((a, b) => b.localeCompare(a))
-      .map(date => {
-        const dateTrades = groups[date];
-        const dateObj = new Date(date + "T00:00:00");
-        const dayName = dateObj.toLocaleDateString("en-US", { weekday: "long" });
-        const daySum = dateTrades.reduce((sum, t) => sum + Number(t.profitLoss || 0), 0);
+    const sunday = new Date(monday);
+    sunday.setDate(sunday.getDate() + 6);
 
-        return {
-          date,
-          dayName,
-          trades: dateTrades,
-          summaryPnL: daySum
-        };
-      });
+    const formatMonthDay = (date: Date) => date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const weekLabel = `Week of ${formatMonthDay(monday)} – ${formatMonthDay(sunday)}, ${sunday.getFullYear()}`;
+    const weekKey = monday.toISOString().split("T")[0]; // YYYY-MM-DD for sorting
+
+    return { weekKey, weekLabel };
   };
 
-  const groupedTrades = groupTradesByDate();
+  // Group trades by Week, then by Date inside each Week
+  const groupTradesByWeek = () => {
+    const weekMap: Record<string, { weekLabel: string; trades: Trade[] }> = {};
+
+    trades.forEach(t => {
+      const date = t.entryDate || "No Date";
+      const { weekKey, weekLabel } = getWeekInfo(date);
+      if (!weekMap[weekKey]) {
+        weekMap[weekKey] = { weekLabel, trades: [] };
+      }
+      weekMap[weekKey].trades.push(t);
+    });
+
+    // Sort weeks descending (newest week first)
+    const sortedWeekKeys = Object.keys(weekMap).sort((a, b) => b.localeCompare(a));
+
+    return sortedWeekKeys.map(weekKey => {
+      const weekData = weekMap[weekKey];
+
+      // Subgroup by entryDate inside the week
+      const dayMap: Record<string, Trade[]> = {};
+      weekData.trades.forEach(t => {
+        const d = t.entryDate || "No Date";
+        if (!dayMap[d]) dayMap[d] = [];
+        dayMap[d].push(t);
+      });
+
+      const sortedDays = Object.keys(dayMap)
+        .sort((a, b) => b.localeCompare(a))
+        .map(date => {
+          const dayTrades = dayMap[date];
+          const dateObj = new Date(date + "T00:00:00");
+          const dayName = isNaN(dateObj.getTime()) ? "" : dateObj.toLocaleDateString("en-US", { weekday: "long" });
+          const daySum = dayTrades.reduce((sum, t) => sum + Number(t.profitLoss || 0), 0);
+
+          return {
+            date,
+            dayName,
+            trades: dayTrades,
+            summaryPnL: daySum
+          };
+        });
+
+      const totalWeekPnL = weekData.trades.reduce((sum, t) => sum + Number(t.profitLoss || 0), 0);
+      const winsCount = weekData.trades.filter(t => t.status === "WIN").length;
+      const weekWinRate = weekData.trades.length > 0 ? Math.round((winsCount / weekData.trades.length) * 100) : 0;
+
+      return {
+        weekKey,
+        weekLabel: weekData.weekLabel,
+        days: sortedDays,
+        totalTrades: weekData.trades.length,
+        totalWeekPnL,
+        weekWinRate
+      };
+    });
+  };
+
+  const groupedWeeks = groupTradesByWeek();
 
   return (
     <div id="trade-history-organizer" className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-lg overflow-hidden shadow-sm flex flex-col h-full text-slate-850 dark:text-slate-105">
@@ -106,190 +157,234 @@ export default function TradeHistoryList({
         </div>
       </div>
 
-      {/* Independent scroll area for trading history */}
+      {/* Scroll area for trading history */}
       <div 
         id="scrollable-trade-history-container" 
-        className="overflow-y-auto flex-1 p-4 space-y-4 max-h-[580px] custom-scrollbar"
+        className="overflow-y-auto flex-1 p-4 space-y-4 min-h-[400px] custom-scrollbar"
         style={{ scrollbarWidth: 'thin' }}
       >
         {activeTab === "trades" ? (
-          groupedTrades.length === 0 ? (
+          groupedWeeks.length === 0 ? (
             <div id="empty-trades-view" className="text-center py-16 text-slate-500">
               <Calendar className="mx-auto mb-3 opacity-30" size={36} />
               <p className="text-sm">No trades registered yet.</p>
               <p className="text-xs text-slate-600 mt-1">Use the Manual Trade Entry form to add your first journal trade.</p>
             </div>
           ) : (
-            groupedTrades.map(group => {
-              const isExpanded = !!expandedDates[group.date];
-              const pnlColor = group.summaryPnL > 0 
-                ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 px-1.5 py-0.5 rounded" 
-                : group.summaryPnL < 0 
-                  ? "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 px-1.5 py-0.5 rounded" 
-                  : "text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 px-1.5 py-0.5 rounded";
+            groupedWeeks.map(week => {
+              const isWeekExpanded = expandedWeeks[week.weekKey] !== false;
+              const weekPnLColor = week.totalWeekPnL > 0 
+                ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/60" 
+                : week.totalWeekPnL < 0 
+                  ? "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60" 
+                  : "text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700";
 
               return (
                 <div 
-                  id={`date-section-${group.date}`} 
-                  key={group.date}
-                  className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded overflow-hidden transition-all shadow-xs"
+                  key={week.weekKey}
+                  className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs"
                 >
-                  {/* Collapsible Section Header */}
+                  {/* Week Banner Header */}
                   <div
-                    id={`section-header-${group.date}`}
-                    onClick={() => toggleDate(group.date)}
-                    className="flex items-center justify-between p-2 cursor-pointer bg-slate-50 dark:bg-slate-950 hover:bg-slate-100/80 dark:hover:bg-slate-900 transition-colors border-b border-slate-202 dark:border-slate-800"
+                    onClick={() => toggleWeek(week.weekKey)}
+                    className="flex items-center justify-between p-3 cursor-pointer bg-slate-100/90 dark:bg-slate-950 hover:bg-slate-200/80 dark:hover:bg-slate-900 transition-colors border-b border-slate-205 dark:border-slate-800"
                   >
-                    <div id="header-left-side" className="flex items-center gap-1.5">
-                      {isExpanded ? <ChevronDown size={14} className="text-slate-500 dark:text-slate-400" /> : <ChevronRight size={14} className="text-slate-500 dark:text-slate-400" />}
+                    <div className="flex items-center gap-2">
+                      {isWeekExpanded ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
+                      <Calendar size={14} className="text-indigo-500" />
                       <div>
-                        <div id="date-label-area" className="flex items-center gap-1.5">
-                          <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">{group.date}</span>
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">({group.dayName})</span>
-                        </div>
-                        <div id="count-label-area" className="text-[9px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">
-                          {group.trades.length} {group.trades.length === 1 ? "trade" : "trades"}
-                        </div>
+                        <span className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm font-mono">{week.weekLabel}</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono block mt-0.5">
+                          {week.totalTrades} trade{week.totalTrades !== 1 ? "s" : ""} • {week.weekWinRate}% Win Rate
+                        </span>
                       </div>
                     </div>
-                    
-                    {/* Collapsible Section Right - Summary result */}
-                    <div id="header-right-side" className="text-right">
-                      <span className={`font-mono text-xs font-bold ${pnlColor}`}>
-                        {group.summaryPnL > 0 ? "+" : ""}${group.summaryPnL.toFixed(2)}
+
+                    <div className="text-right">
+                      <span className={`font-mono text-xs font-bold px-2 py-0.5 rounded ${weekPnLColor}`}>
+                        {week.totalWeekPnL > 0 ? "+" : ""}${week.totalWeekPnL.toFixed(2)}
                       </span>
                     </div>
                   </div>
 
-                  {/* Expanded Trades List */}
-                  {isExpanded && (
-                    <div id={`trades-list-${group.date}`} className="divide-y divide-slate-105 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                      {group.trades.map((trade) => {
-                        const tradePnL = Number(trade.profitLoss) || 0;
-                        const cardPnLColor = tradePnL > 0 
-                          ? "bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold" 
-                          : tradePnL < 0 
-                            ? "bg-rose-50 border border-rose-200 text-rose-700 font-bold" 
-                            : "bg-slate-50 border border-slate-200 text-slate-600";
-
-                        const isBuy = trade.type === "BUY";
+                  {/* Week Body: Days List */}
+                  {isWeekExpanded && (
+                    <div className="p-2 sm:p-3 space-y-3 bg-slate-50/50 dark:bg-slate-900/50">
+                      {week.days.map(group => {
+                        const isDateExpanded = expandedDates[group.date] !== false;
+                        const dayPnLColor = group.summaryPnL > 0 
+                          ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 px-1.5 py-0.5 rounded" 
+                          : group.summaryPnL < 0 
+                            ? "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 px-1.5 py-0.5 rounded" 
+                            : "text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 px-1.5 py-0.5 rounded";
 
                         return (
                           <div 
-                            id={`trade-card-${trade.id}`}
-                            key={trade.id} 
-                            className="p-3 hover:bg-slate-50/50 dark:hover:bg-slate-950/50 transition-colors flex flex-col sm:flex-row gap-2 justify-between items-start sm:items-center"
+                            id={`date-section-${group.date}`} 
+                            key={group.date}
+                            className="bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-850 rounded-lg overflow-hidden transition-all shadow-xs"
                           >
-                            <div id="trade-body-left" className="flex gap-2.5">
-                              {/* Symbol badge / Direction */}
-                              <div id="direction-symbol-badge" className="flex flex-col justify-center items-center min-w-[70px]">
-                                <span className="font-bold text-slate-800 dark:text-slate-200 text-xs tracking-tight">{trade.symbol}</span>
-                                <span className={`text-[9px] font-mono font-bold px-1 py-0.5 rounded mt-0.5 uppercase ${
-                                  isBuy ? "bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 text-emerald-600 dark:text-emerald-400" : "bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 text-rose-600 dark:text-rose-400"
-                                }`}>
-                                  {trade.type} • {trade.size}L
-                                </span>
-                              </div>
-
-                              {/* Timings, score, emotions */}
-                              <div id="trade-meta-details" className="text-xs">
-                                <div id="meta-times" className="flex flex-wrap items-center gap-x-2 text-slate-500 dark:text-slate-400 text-[11px]">
-                                  <span id="label-setup-time" className="flex items-center gap-0.5" title="Setup Time">
-                                    <Tag size={9} className="text-slate-400 dark:text-slate-500" />
-                                    Setup: <span className="text-slate-700 dark:text-slate-300 font-mono">{trade.setupTime}</span>
-                                  </span>
-                                  <span id="label-entry-time" className="flex items-center gap-0.5" title="Execution Time">
-                                    <Clock size={9} className="text-slate-400 dark:text-slate-500" />
-                                    Entry: <span className="text-slate-700 dark:text-slate-300 font-mono">{trade.entryTime}</span>
-                                  </span>
-                                </div>
-
-                                <div id="meta-prices" className="text-slate-500 dark:text-slate-450 mt-0.5 font-mono text-[10px]">
-                                  Prices: <span className="text-slate-805 dark:text-slate-300 font-medium">{trade.entryPrice}</span> → <span className="text-slate-850 dark:text-slate-200 font-medium">{trade.exitPrice}</span>
-                                  {trade.stopLoss && <span className="text-slate-400 dark:text-slate-500"> | SL: {trade.stopLoss}</span>}
-                                  {trade.takeProfit && <span className="text-slate-400 dark:text-slate-500"> | TP: {trade.takeProfit}</span>}
-                                </div>
-
-                                <div id="badge-emotions" className="flex items-center gap-1.5 mt-1">
-                                  {trade.emotionalState && (
-                                    <span id="tag-emotion" className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[9px] px-1.5 py-0.5 rounded italic">
-                                      <Smile size={9} className="text-slate-400 dark:text-slate-500" />
-                                      {trade.emotionalState}
-                                    </span>
-                                  )}
-                                  {trade.qualityScore && (
-                                    <span id="tag-quality" className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 text-amber-600 dark:text-amber-400 text-[9px] px-1.5 py-0.5 rounded">
-                                      <Star size={9} className="fill-amber-400 text-amber-400" />
-                                      {trade.qualityScore}/5 Setup
-                                    </span>
-                                  )}
-                                </div>
-
-                                {trade.notes && (
-                                  <p id="trade-notes" className="text-slate-500 dark:text-slate-450 mt-1 text-[10px] italic line-clamp-1 max-w-[320px]">
-                                    "{trade.notes}"
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* PnL and Actions */}
-                            <div id="trade-body-right" className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto gap-2">
-                              {/* ProfitLoss Display */}
-                              <div id="pnl-badge-area" className="text-right">
-                                <span className={`text-[11px] font-mono px-2 py-0.5 rounded inline-block ${cardPnLColor}`}>
-                                  {tradePnL > 0 ? "+" : ""}${tradePnL.toFixed(2)}
-                                </span>
-                                <div id="status-label" className="text-[9px] text-slate-400 dark:text-slate-500 font-mono">
-                                  {trade.status}
-                                </div>
-                              </div>
-
-                              {/* Edit & Delete Buttons */}
-                              <div id="action-buttons" className="flex items-center gap-0.5">
-                                {confirmDeleteTradeId === trade.id ? (
-                                  <div className="flex items-center gap-1 bg-rose-50 dark:bg-rose-950/25 border border-rose-200 dark:border-rose-900 rounded p-0.5 animate-bounce-short">
-                                    <span className="text-[9px] text-rose-700 dark:text-rose-400 font-bold px-1 font-sans">Delete?</span>
-                                    <button
-                                      id={`btn-confirm-delete-trade-${trade.id}`}
-                                      onClick={() => {
-                                        onDeleteTrade(trade.id);
-                                        setConfirmDeleteTradeId(null);
-                                      }}
-                                      className="text-[9px] bg-rose-600 hover:bg-rose-700 text-white px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors"
-                                    >
-                                      Yes
-                                    </button>
-                                    <button
-                                      id={`btn-cancel-delete-trade-${trade.id}`}
-                                      onClick={() => setConfirmDeleteTradeId(null)}
-                                      className="text-[9px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded font-semibold cursor-pointer transition-colors"
-                                    >
-                                      No
-                                    </button>
+                            {/* Collapsible Section Header */}
+                            <div
+                              id={`section-header-${group.date}`}
+                              onClick={() => toggleDate(group.date)}
+                              className="flex items-center justify-between p-2.5 cursor-pointer bg-slate-50 dark:bg-slate-900/80 hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors border-b border-slate-202 dark:border-slate-800"
+                            >
+                              <div id="header-left-side" className="flex items-center gap-1.5">
+                                {isDateExpanded ? <ChevronDown size={13} className="text-slate-500 dark:text-slate-400" /> : <ChevronRight size={13} className="text-slate-500 dark:text-slate-400" />}
+                                <div>
+                                  <div id="date-label-area" className="flex items-center gap-1.5">
+                                    <span className="font-bold text-slate-800 dark:text-slate-200 text-xs font-mono">{group.date}</span>
+                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">({group.dayName})</span>
                                   </div>
-                                ) : (
-                                  <>
-                                    <button
-                                      id={`btn-edit-trade-${trade.id}`}
-                                      onClick={() => onEditTrade(trade)}
-                                      className="p-1 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-all cursor-pointer"
-                                      title="Edit Trade details"
-                                    >
-                                      <Edit2 size={11} />
-                                    </button>
-                                    <button
-                                      id={`btn-delete-trade-${trade.id}`}
-                                      onClick={() => setConfirmDeleteTradeId(trade.id)}
-                                      className="p-1 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-450 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-all cursor-pointer"
-                                      title="Delete Trade"
-                                    >
-                                      <Trash2 size={11} />
-                                    </button>
-                                  </>
-                                )}
+                                  <div id="count-label-area" className="text-[9px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">
+                                    {group.trades.length} {group.trades.length === 1 ? "trade" : "trades"}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Collapsible Section Right - Summary result */}
+                              <div id="header-right-side" className="text-right">
+                                <span className={`font-mono text-xs font-bold ${dayPnLColor}`}>
+                                  {group.summaryPnL > 0 ? "+" : ""}${group.summaryPnL.toFixed(2)}
+                                </span>
                               </div>
                             </div>
+
+                            {/* Expanded Trades List */}
+                            {isDateExpanded && (
+                              <div id={`trades-list-${group.date}`} className="divide-y divide-slate-105 dark:divide-slate-850 bg-white dark:bg-slate-950">
+                                {group.trades.map((trade) => {
+                                  const tradePnL = Number(trade.profitLoss) || 0;
+                                  const cardPnLColor = tradePnL > 0 
+                                    ? "bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-400 font-bold" 
+                                    : tradePnL < 0 
+                                      ? "bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-400 font-bold" 
+                                      : "bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400";
+
+                                  const isBuy = trade.type === "BUY";
+
+                                  return (
+                                    <div 
+                                      id={`trade-card-${trade.id}`}
+                                      key={trade.id} 
+                                      className="p-3 hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors flex flex-col sm:flex-row gap-2 justify-between items-start sm:items-center"
+                                    >
+                                      <div id="trade-body-left" className="flex gap-2.5">
+                                        {/* Symbol badge / Direction */}
+                                        <div id="direction-symbol-badge" className="flex flex-col justify-center items-center min-w-[70px]">
+                                          <span className="font-bold text-slate-800 dark:text-slate-200 text-xs tracking-tight">{trade.symbol}</span>
+                                          <span className={`text-[9px] font-mono font-bold px-1 py-0.5 rounded mt-0.5 uppercase ${
+                                            isBuy ? "bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 text-emerald-600 dark:text-emerald-400" : "bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 text-rose-600 dark:text-rose-400"
+                                          }`}>
+                                            {trade.type} • {trade.size}L
+                                          </span>
+                                        </div>
+
+                                        {/* Timings, score, emotions */}
+                                        <div id="trade-meta-details" className="text-xs">
+                                          <div id="meta-times" className="flex flex-wrap items-center gap-x-2 text-slate-500 dark:text-slate-400 text-[11px]">
+                                            <span id="label-setup-time" className="flex items-center gap-0.5" title="Setup Time">
+                                              <Tag size={9} className="text-slate-400 dark:text-slate-500" />
+                                              Setup: <span className="text-slate-700 dark:text-slate-300 font-mono">{trade.setupTime}</span>
+                                            </span>
+                                            <span id="label-entry-time" className="flex items-center gap-0.5" title="Execution Time">
+                                              <Clock size={9} className="text-slate-400 dark:text-slate-500" />
+                                              Entry: <span className="text-slate-700 dark:text-slate-300 font-mono">{trade.entryTime}</span>
+                                            </span>
+                                          </div>
+
+                                          <div id="meta-prices" className="text-slate-500 dark:text-slate-450 mt-0.5 font-mono text-[10px]">
+                                            Prices: <span className="text-slate-805 dark:text-slate-300 font-medium">{trade.entryPrice}</span> → <span className="text-slate-850 dark:text-slate-200 font-medium">{trade.exitPrice}</span>
+                                            {trade.stopLoss && <span className="text-slate-400 dark:text-slate-500"> | SL: {trade.stopLoss}</span>}
+                                            {trade.takeProfit && <span className="text-slate-400 dark:text-slate-500"> | TP: {trade.takeProfit}</span>}
+                                          </div>
+
+                                          <div id="badge-emotions" className="flex items-center gap-1.5 mt-1">
+                                            {trade.emotionalState && (
+                                              <span id="tag-emotion" className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[9px] px-1.5 py-0.5 rounded italic">
+                                                <Smile size={9} className="text-slate-400 dark:text-slate-500" />
+                                                {trade.emotionalState}
+                                              </span>
+                                            )}
+                                            {trade.qualityScore && (
+                                              <span id="tag-quality" className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 text-amber-600 dark:text-amber-400 text-[9px] px-1.5 py-0.5 rounded">
+                                                <Star size={9} className="fill-amber-400 text-amber-400" />
+                                                {trade.qualityScore}/5 Setup
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {trade.notes && (
+                                            <p id="trade-notes" className="text-slate-500 dark:text-slate-450 mt-1 text-[10px] italic line-clamp-1 max-w-[320px]">
+                                              "{trade.notes}"
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* PnL and Actions */}
+                                      <div id="trade-body-right" className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto gap-2">
+                                        {/* ProfitLoss Display */}
+                                        <div id="pnl-badge-area" className="text-right">
+                                          <span className={`text-[11px] font-mono px-2 py-0.5 rounded inline-block ${cardPnLColor}`}>
+                                            {tradePnL > 0 ? "+" : ""}${tradePnL.toFixed(2)}
+                                          </span>
+                                          <div id="status-label" className="text-[9px] text-slate-400 dark:text-slate-500 font-mono">
+                                            {trade.status}
+                                          </div>
+                                        </div>
+
+                                        {/* Edit & Delete Buttons */}
+                                        <div id="action-buttons" className="flex items-center gap-0.5">
+                                          {confirmDeleteTradeId === trade.id ? (
+                                            <div className="flex items-center gap-1 bg-rose-50 dark:bg-rose-950/25 border border-rose-200 dark:border-rose-900 rounded p-0.5 animate-bounce-short">
+                                              <span className="text-[9px] text-rose-700 dark:text-rose-400 font-bold px-1 font-sans">Delete?</span>
+                                              <button
+                                                id={`btn-confirm-delete-trade-${trade.id}`}
+                                                onClick={() => {
+                                                  onDeleteTrade(trade.id);
+                                                  setConfirmDeleteTradeId(null);
+                                                }}
+                                                className="text-[9px] bg-rose-600 hover:bg-rose-700 text-white px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors"
+                                              >
+                                                Yes
+                                              </button>
+                                              <button
+                                                id={`btn-cancel-delete-trade-${trade.id}`}
+                                                onClick={() => setConfirmDeleteTradeId(null)}
+                                                className="text-[9px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded font-semibold cursor-pointer transition-colors"
+                                              >
+                                                No
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <>
+                                              <button
+                                                id={`btn-edit-trade-${trade.id}`}
+                                                onClick={() => onEditTrade(trade)}
+                                                className="p-1 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-all cursor-pointer"
+                                                title="Edit Trade details"
+                                              >
+                                                <Edit2 size={11} />
+                                              </button>
+                                              <button
+                                                id={`btn-delete-trade-${trade.id}`}
+                                                onClick={() => setConfirmDeleteTradeId(trade.id)}
+                                                className="p-1 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-450 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-all cursor-pointer"
+                                                title="Delete Trade"
+                                              >
+                                                <Trash2 size={11} />
+                                              </button>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -309,9 +404,7 @@ export default function TradeHistoryList({
             </div>
           ) : (
             <div id="transactions-log-list" className="space-y-1.5">
-              {/* Calculating current balance log running states */}
               {(() => {
-                // Calculate running balances in order (earliest to latest)
                 const sortedTx = [...transactions].sort((a,b) => {
                   const dateA = a.date + "T" + (a.time || "00:00");
                   const dateB = b.date + "T" + (b.time || "00:00");
@@ -328,14 +421,13 @@ export default function TradeHistoryList({
                   return { ...tx, runningBalance };
                 });
 
-                // Reverse back to show most recent transactions at the top
                 return txWithRunningBalances.reverse().map((tx) => {
                   const isDeposit = tx.type === "DEPOSIT";
                   return (
                     <div 
                       id={`tx-card-${tx.id}`}
                       key={tx.id} 
-                      className="bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 rounded p-2.5 flex justify-between items-center hover:bg-slate-100/70 dark:hover:bg-slate-900 transition-colors"
+                      className="bg-slate-50 dark:bg-slate-955 border border-slate-205 dark:border-slate-800 rounded p-2.5 flex justify-between items-center hover:bg-slate-100/70 dark:hover:bg-slate-900 transition-colors"
                     >
                       <div id="tx-meta-left" className="flex items-center gap-2.5">
                         <div id="tx-indicator-icon" className={`p-1.5 rounded ${isDeposit ? "bg-emerald-100/10 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400" : "bg-amber-100/10 dark:bg-amber-950/30 text-amber-750 dark:text-amber-400"}`}>

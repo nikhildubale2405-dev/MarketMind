@@ -290,11 +290,10 @@ export default function TradeEntryForm({
         </div>
       </div>
 
-      {/* Manual Entry scroll section */}
+      {/* Manual Entry fields section */}
       <div 
-        id="scrollable-entry-fields-area" 
-        className="p-4 flex-1 overflow-y-auto max-h-[580px] custom-scrollbar bg-white dark:bg-slate-900"
-        style={{ scrollbarWidth: 'thin' }}
+        id="entry-fields-area" 
+        className="p-4 sm:p-5 flex-1 bg-white dark:bg-slate-900"
       >
         {activeTab === "trade" ? (
           /* TRADING JOURNAL MANUAL ENTRY */
