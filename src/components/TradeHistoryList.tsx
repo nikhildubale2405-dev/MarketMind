@@ -28,14 +28,14 @@ export default function TradeHistoryList({
   const toggleWeek = (weekKey: string) => {
     setExpandedWeeks(prev => ({
       ...prev,
-      [weekKey]: prev[weekKey] === undefined ? false : !prev[weekKey]
+      [weekKey]: !prev[weekKey]
     }));
   };
 
   const toggleDate = (dateStr: string) => {
     setExpandedDates(prev => ({
       ...prev,
-      [dateStr]: prev[dateStr] === undefined ? false : !prev[dateStr]
+      [dateStr]: !prev[dateStr]
     }));
   };
 
@@ -172,7 +172,7 @@ export default function TradeHistoryList({
             </div>
           ) : (
             groupedWeeks.map(week => {
-              const isWeekExpanded = expandedWeeks[week.weekKey] !== false;
+              const isWeekExpanded = !!expandedWeeks[week.weekKey];
               const weekPnLColor = week.totalWeekPnL > 0 
                 ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/60" 
                 : week.totalWeekPnL < 0 
@@ -211,7 +211,7 @@ export default function TradeHistoryList({
                   {isWeekExpanded && (
                     <div className="p-2 sm:p-3 space-y-3 bg-slate-50/50 dark:bg-slate-900/50">
                       {week.days.map(group => {
-                        const isDateExpanded = expandedDates[group.date] !== false;
+                        const isDateExpanded = !!expandedDates[group.date];
                         const dayPnLColor = group.summaryPnL > 0 
                           ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 px-1.5 py-0.5 rounded" 
                           : group.summaryPnL < 0 
