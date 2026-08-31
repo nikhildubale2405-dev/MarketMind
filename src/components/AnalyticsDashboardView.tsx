@@ -1,7 +1,19 @@
 import React, { useState } from "react";
 import { Trade, Transaction, HourlyStats } from "../types";
 import { getTradingSession } from "../utils";
-import { Calendar as CalendarIcon, Clock, Award, ShieldAlert, TrendingUp, TrendingDown, Target, Sparkles, AlertCircle } from "lucide-react";
+import {
+  Calendar as CalendarIcon,
+  Clock,
+  Award,
+  ShieldAlert,
+  TrendingUp,
+  TrendingDown,
+  Target,
+  Sparkles,
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight
+} from "lucide-react";
 
 interface AnalyticsDashboardViewProps {
   trades: Trade[];
@@ -27,14 +39,47 @@ export default function AnalyticsDashboardView({
   trades,
   transactions,
 }: AnalyticsDashboardViewProps) {
+  const [currentMonthDate, setCurrentMonthDate] = useState<Date>(() => new Date());
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => {
     const d = new Date();
     const offset = d.getTimezoneOffset();
     return new Date(d.getTime() - (offset * 60 * 1000)).toISOString().split("T")[0]; // YYYY-MM-DD
   });
 
+  const handlePrevMonth = () => {
+    setCurrentMonthDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentMonthDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const handleCurrentMonth = () => {
+    const now = new Date();
+    setCurrentMonthDate(now);
+    const offset = now.getTimezoneOffset();
+    setSelectedCalendarDate(new Date(now.getTime() - (offset * 60 * 1000)).toISOString().split("T")[0]);
+  };
+
+  const currentMonthPrefix = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, "0")}`;
+  const currentMonthName = currentMonthDate.toLocaleString("en-US", { month: "long", year: "numeric" });
+
   // 1. Group trades by calendar date (entryDate) to calculate daily statistics
   const getDailyTransactions = (dateStr: string) => {
+    if (!dateStr) {
+      return {
+        trades: [],
+        tradesCount: 0,
+        totalProfit: 0,
+        totalLoss: 0,
+        netResult: 0,
+        winRate: 0,
+        totalPipsCaptured: 0,
+        totalPipsLost: 0,
+        netPipsCaptured: 0
+      };
+    }
+
     const dailyTrades = trades.filter(t => t.entryDate === dateStr);
     const wins = dailyTrades.filter(t => Number(t.profitLoss) > 0);
     const losses = dailyTrades.filter(t => Number(t.profitLoss) < 0);
@@ -70,23 +115,59 @@ export default function AnalyticsDashboardView({
     };
   };
 
-  // Generate date list of the current month to show in Trading Calendar
+  // Group trades for the entire active month
+  const getMonthlyStats = (monthPrefix: string) => {
+    const monthlyTrades = trades.filter(t => t.entryDate && t.entryDate.startsWith(monthPrefix));
+    const wins = monthlyTrades.filter(t => Number(t.profitLoss) > 0);
+    const losses = monthlyTrades.filter(t => Number(t.profitLoss) < 0);
+    const totalProfit = wins.reduce((sum, t) => sum + Number(t.profitLoss), 0);
+    const totalLoss = losses.reduce((sum, t) => sum + Math.abs(Number(t.profitLoss)), 0);
+    const netResult = totalProfit - totalLoss;
+    const winRate = monthlyTrades.length > 0 ? (wins.length / monthlyTrades.length) * 100 : 0;
+
+    let totalPipsCaptured = 0;
+    let totalPipsLost = 0;
+
+    monthlyTrades.forEach(t => {
+      const pips = calculateTradePips(t);
+      if (pips > 0) {
+        totalPipsCaptured += pips;
+      } else if (pips < 0) {
+        totalPipsLost += Math.abs(pips);
+      }
+    });
+
+    const netPipsCaptured = totalPipsCaptured - totalPipsLost;
+
+    return {
+      trades: monthlyTrades,
+      tradesCount: monthlyTrades.length,
+      totalProfit,
+      totalLoss,
+      netResult,
+      winRate,
+      totalPipsCaptured,
+      totalPipsLost,
+      netPipsCaptured
+    };
+  };
+
+  // Generate date list of the current viewing month to show in Trading Calendar
   const getCalendarDays = () => {
     const days = [];
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth(); // 0-11
+    const year = currentMonthDate.getFullYear();
+    const month = currentMonthDate.getMonth(); // 0-11
     
     const getLocalDateString = (d: Date) => {
       const offset = d.getTimezoneOffset();
       return new Date(d.getTime() - (offset * 60 * 1000)).toISOString().split("T")[0];
     };
 
-    // First day of current month
+    // First day of current viewing month
     const firstDay = new Date(year, month, 1);
     const startOffset = firstDay.getDay(); // 0 is Sunday, etc.
     
-    // Total days in current month
+    // Total days in current viewing month
     const totalDays = new Date(year, month + 1, 0).getDate();
 
     // Pad previous month offset days
@@ -114,10 +195,16 @@ export default function AnalyticsDashboardView({
 
   const calendarDays = getCalendarDays();
   const selectedDayInfo = getDailyTransactions(selectedCalendarDate);
+  const monthlyInfo = getMonthlyStats(currentMonthPrefix);
+
+  // When no date is selected OR the selected date has 0 trades:
+  // display the whole month's information and pips!
+  const isShowingMonthlyStats = !selectedCalendarDate || selectedDayInfo.tradesCount === 0;
+  const activeDisplayInfo = isShowingMonthlyStats ? monthlyInfo : selectedDayInfo;
 
   // 2. TIME-BASED TRADE ANALYSIS (HOURLY)
   // Calculate hourly win/loss stats based on ENTRY TIME hour (0..23)
-  const calculateHourlyStats = (): HourlyStats[] => {
+  const calculateHourlyStats = (): (HourlyStats & { totalPips: number; winsCount: number; lossesCount: number })[] => {
     const hours: Record<number, { trades: Trade[] }> = {};
     for (let h = 0; h < 24; h++) {
       hours[h] = { trades: [] };
@@ -146,6 +233,11 @@ export default function AnalyticsDashboardView({
       const avgProfit = wins.length > 0 ? totalProfit / wins.length : 0;
       const avgLoss = losses.length > 0 ? totalLoss / losses.length : 0;
 
+      let hourPips = 0;
+      hTrades.forEach(t => {
+        hourPips += calculateTradePips(t);
+      });
+
       return {
         hour,
         tradesCount: hTrades.length,
@@ -154,7 +246,8 @@ export default function AnalyticsDashboardView({
         winRate: Math.round(winRate),
         netResult,
         avgProfit,
-        avgLoss
+        avgLoss,
+        totalPips: Number(hourPips.toFixed(1))
       };
     });
   };
@@ -360,14 +453,36 @@ export default function AnalyticsDashboardView({
         
         {/* Left Side: Calendar Month View */}
         <div id="calendar-month-grid-column" className="lg:col-span-2">
-          <div id="calendar-header" className="flex justify-between items-center mb-4">
+          <div id="calendar-header" className="flex flex-wrap justify-between items-center gap-2 mb-4">
             <h3 className="text-sm font-semibold tracking-wide uppercase font-mono flex items-center gap-2">
               <CalendarIcon size={16} className="text-emerald-400" />
               Trading Calendar Summary
             </h3>
-            <span className="text-xs bg-slate-800 text-slate-300 font-mono px-2 py-0.5 rounded">
-              {new Date().toLocaleString("en-US", { month: "long", year: "numeric" })}
-            </span>
+            
+            {/* Month Navigation Controls */}
+            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 p-1 rounded-lg">
+              <button
+                onClick={handlePrevMonth}
+                className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-colors"
+                title="Previous Month"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                onClick={handleCurrentMonth}
+                className="text-xs font-mono font-bold text-slate-200 hover:text-emerald-400 px-2 py-0.5 rounded transition-colors"
+                title="Jump to Current Month"
+              >
+                {currentMonthName}
+              </button>
+              <button
+                onClick={handleNextMonth}
+                className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-colors"
+                title="Next Month"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
           </div>
 
           <div id="calendar-week-labels" className="grid grid-cols-7 gap-1 text-center font-mono text-[10px] text-slate-500 font-semibold mb-2">
@@ -420,49 +535,99 @@ export default function AnalyticsDashboardView({
           </div>
         </div>
 
-        {/* Right Side: Day Details & Daily Analytics */}
+        {/* Right Side: Day Details & Daily/Monthly Analytics */}
         <div id="calendar-day-details-column" className="bg-slate-950/60 rounded-xl p-4 border border-slate-800 flex flex-col h-full justify-between">
           <div>
-            <div id="selected-day-header" className="border-b border-slate-800/80 pb-2 mb-4">
-              <span className="text-[11px] font-mono text-slate-500 tracking-widest block uppercase">Selected Date Summary</span>
-              <h4 className="text-base font-bold text-slate-250 mt-0.5">{selectedCalendarDate}</h4>
+            <div id="selected-day-header" className="border-b border-slate-800/80 pb-2 mb-4 flex justify-between items-start">
+              <div>
+                <span className="text-[11px] font-mono text-slate-500 tracking-widest block uppercase">
+                  {isShowingMonthlyStats ? "Monthly Summary" : "Selected Date Summary"}
+                </span>
+                <h4 className="text-base font-bold text-slate-200 mt-0.5">
+                  {isShowingMonthlyStats ? currentMonthName : selectedCalendarDate}
+                </h4>
+                {selectedCalendarDate && isShowingMonthlyStats && (
+                  <span className="text-[10px] font-mono text-amber-400/90 block mt-0.5">
+                    No trades on {selectedCalendarDate} — showing {currentMonthName} summary
+                  </span>
+                )}
+              </div>
+              {selectedCalendarDate && !isShowingMonthlyStats && (
+                <button
+                  onClick={() => setSelectedCalendarDate("")}
+                  className="text-[10px] font-mono text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-2 py-1 rounded transition-colors cursor-pointer"
+                  title="View Full Month"
+                >
+                  View Month
+                </button>
+              )}
             </div>
 
-            {selectedDayInfo.tradesCount === 0 ? (
-              <div id="selected-day-empty-info" className="text-center py-10 text-slate-600">
+            {activeDisplayInfo.tradesCount === 0 ? (
+              <div id="selected-day-empty-info" className="text-center py-6 text-slate-600">
                 <AlertCircle className="mx-auto mb-2 opacity-30" size={28} />
-                <p className="text-xs">No setups entered for this date.</p>
-                <p className="text-[10px] mt-1 text-slate-700">Click on other highlights or days with setups.</p>
+                <p className="text-xs">No trades found for {currentMonthName}.</p>
+                <p className="text-[10px] mt-1 text-slate-700">Enter setups in the journal to view daily and monthly pip analytics.</p>
+                
+                {/* Even when 0 trades in month, show 0.0 pip breakdown */}
+                <div className="mt-4 border-t border-slate-850/80 pt-3 text-left">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-400">Pip Metrics ({currentMonthName})</span>
+                    <span className="text-[9px] font-mono text-slate-500">$1 = 10 pips</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
+                      <span className="text-[9px] font-mono text-slate-500 uppercase block font-medium">Total Pips Captured</span>
+                      <span className="text-sm font-bold font-mono text-slate-400">0.0 pips</span>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
+                      <span className="text-[9px] font-mono text-slate-500 uppercase block font-medium">Total Pips Lost</span>
+                      <span className="text-sm font-bold font-mono text-slate-400">0.0 pips</span>
+                    </div>
+                  </div>
+                  <div className="bg-slate-900 border border-slate-850 p-3 rounded-lg mt-2 flex justify-between items-center">
+                    <div>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase block">Net Pips Captured</span>
+                      <span className="text-base font-mono font-bold text-slate-300">0.0 pips</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : (
                 <div id="selected-day-analytics-list" className="space-y-3">
                   <div className="grid grid-cols-2 gap-2">
                     <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase block">Trades Executed</span>
-                      <span className="text-base font-bold font-mono">{selectedDayInfo.tradesCount}</span>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase block">
+                        {isShowingMonthlyStats ? "Month Trades" : "Trades Executed"}
+                      </span>
+                      <span className="text-base font-bold font-mono">{activeDisplayInfo.tradesCount}</span>
                     </div>
                     <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase block">Day Win Rate</span>
-                      <span className="text-base font-bold font-mono text-emerald-400">{Math.round(selectedDayInfo.winRate)}%</span>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase block">
+                        {isShowingMonthlyStats ? "Month Win Rate" : "Day Win Rate"}
+                      </span>
+                      <span className="text-base font-bold font-mono text-emerald-400">{Math.round(activeDisplayInfo.winRate)}%</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
                       <span className="text-[9px] font-mono text-slate-500 uppercase block font-medium">Profit Sum</span>
-                      <span className="text-sm font-bold font-mono text-emerald-500">+{selectedDayInfo.totalProfit.toFixed(1)}</span>
+                      <span className="text-sm font-bold font-mono text-emerald-500">+{activeDisplayInfo.totalProfit.toFixed(1)}</span>
                     </div>
                     <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
                       <span className="text-[9px] font-mono text-slate-500 uppercase block font-medium">Loss Sum</span>
-                      <span className="text-sm font-bold font-mono text-rose-500">-${selectedDayInfo.totalLoss.toFixed(1)}</span>
+                      <span className="text-sm font-bold font-mono text-rose-500">-${activeDisplayInfo.totalLoss.toFixed(1)}</span>
                     </div>
                   </div>
 
                   <div className="bg-slate-900 border border-slate-850 p-3 rounded-lg flex justify-between items-center">
                     <div>
-                      <span className="text-[9px] font-mono text-slate-500 uppercase block">Net Day Result</span>
-                      <span className={`text-base font-mono font-bold ${selectedDayInfo.netResult >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                        {selectedDayInfo.netResult >= 0 ? "+" : ""}${selectedDayInfo.netResult.toFixed(2)}
+                      <span className="text-[9px] font-mono text-slate-500 uppercase block">
+                        {isShowingMonthlyStats ? "Net Month Result" : "Net Day Result"}
+                      </span>
+                      <span className={`text-base font-mono font-bold ${activeDisplayInfo.netResult >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {activeDisplayInfo.netResult >= 0 ? "+" : ""}${activeDisplayInfo.netResult.toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -470,26 +635,28 @@ export default function AnalyticsDashboardView({
                   {/* Pip Performance Metrics */}
                   <div className="border-t border-slate-850/80 pt-3 space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-400">Pip Metrics</span>
+                      <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-400">
+                        {isShowingMonthlyStats ? `Pip Metrics (${currentMonthName})` : "Pip Metrics"}
+                      </span>
                       <span className="text-[9px] font-mono text-slate-500">$1 movement = 10 pips</span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
                         <span className="text-[9px] font-mono text-slate-500 uppercase block font-medium">Total Pips Captured</span>
-                        <span className="text-sm font-bold font-mono text-emerald-400">+{selectedDayInfo.totalPipsCaptured.toFixed(1)} pips</span>
+                        <span className="text-sm font-bold font-mono text-emerald-400">+{activeDisplayInfo.totalPipsCaptured.toFixed(1)} pips</span>
                       </div>
                       <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
                         <span className="text-[9px] font-mono text-slate-500 uppercase block font-medium">Total Pips Lost</span>
-                        <span className="text-sm font-bold font-mono text-rose-400">-{selectedDayInfo.totalPipsLost.toFixed(1)} pips</span>
+                        <span className="text-sm font-bold font-mono text-rose-400">-{activeDisplayInfo.totalPipsLost.toFixed(1)} pips</span>
                       </div>
                     </div>
 
                     <div className="bg-slate-900 border border-slate-850 p-3 rounded-lg flex justify-between items-center">
                       <div>
                         <span className="text-[9px] font-mono text-slate-500 uppercase block">Net Pips Captured</span>
-                        <span className={`text-base font-mono font-bold ${selectedDayInfo.netPipsCaptured >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                          {selectedDayInfo.netPipsCaptured >= 0 ? "+" : ""}{selectedDayInfo.netPipsCaptured.toFixed(1)} pips
+                        <span className={`text-base font-mono font-bold ${activeDisplayInfo.netPipsCaptured >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                          {activeDisplayInfo.netPipsCaptured >= 0 ? "+" : ""}{activeDisplayInfo.netPipsCaptured.toFixed(1)} pips
                         </span>
                       </div>
                     </div>
@@ -499,23 +666,32 @@ export default function AnalyticsDashboardView({
           </div>
 
           <div id="executed-trades-scroller" className="mt-4 border-t border-slate-800/80 pt-3 max-h-[140px] overflow-y-auto">
-            <span className="text-[10px] font-mono text-slate-500 block mb-1">Trades list:</span>
-            {selectedDayInfo.trades.map((t, idx) => {
-              const tradePips = calculateTradePips(t);
-              return (
-                <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-slate-900 last:border-0">
-                  <div className="flex items-center gap-1.5 truncate mr-2">
-                    <span className="font-semibold text-slate-200">{t.symbol} ({t.type})</span>
-                    <span className={`text-[10px] font-mono ${tradePips >= 0 ? "text-emerald-400/80" : "text-rose-400/80"}`}>
-                      ({tradePips >= 0 ? "+" : ""}{tradePips.toFixed(1)} pips)
+            <span className="text-[10px] font-mono text-slate-500 block mb-1">
+              {isShowingMonthlyStats ? `Trades in ${currentMonthName}:` : "Trades list:"}
+            </span>
+            {activeDisplayInfo.trades.length === 0 ? (
+              <p className="text-[11px] text-slate-600 italic">No trades logged.</p>
+            ) : (
+              activeDisplayInfo.trades.map((t, idx) => {
+                const tradePips = calculateTradePips(t);
+                return (
+                  <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-slate-900 last:border-0">
+                    <div className="flex items-center gap-1.5 truncate mr-2">
+                      <span className="font-semibold text-slate-200">{t.symbol} ({t.type})</span>
+                      {isShowingMonthlyStats && t.entryDate && (
+                        <span className="text-[9px] font-mono text-slate-500">[{t.entryDate.substring(5)}]</span>
+                      )}
+                      <span className={`text-[10px] font-mono ${tradePips >= 0 ? "text-emerald-400/80" : "text-rose-400/80"}`}>
+                        ({tradePips >= 0 ? "+" : ""}{tradePips.toFixed(1)} pips)
+                      </span>
+                    </div>
+                    <span className={`font-mono flex-shrink-0 ${Number(t.profitLoss) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                      {Number(t.profitLoss) >= 0 ? "+" : ""}${Number(t.profitLoss).toFixed(1)}
                     </span>
                   </div>
-                  <span className={`font-mono flex-shrink-0 ${Number(t.profitLoss) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {Number(t.profitLoss) >= 0 ? "+" : ""}${Number(t.profitLoss).toFixed(1)}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -576,46 +752,140 @@ export default function AnalyticsDashboardView({
         </div>
       </div>
 
-      {/* 3. HOURLY TRADE PERFORMANCE CHART BAR HEATMAP */}
-      <div id="hourly-performance-chart-card" className="bg-slate-900 border border-slate-800 rounded-xl p-5 text-white">
-        <h4 className="text-xs font-semibold uppercase font-mono tracking-wider text-slate-400 mb-4 flex items-center gap-2">
-          <Clock size={14} className="text-emerald-400" />
-          Trade Performance By Hour (IST +5:30)
-        </h4>
+      {/* 3. HOURLY TRADE PERFORMANCE SECTION */}
+      <div id="hourly-performance-chart-card" className="bg-slate-900 border border-slate-800 rounded-xl p-5 text-white space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+          <div>
+            <h4 className="text-xs font-semibold uppercase font-mono tracking-wider text-slate-300 flex items-center gap-2">
+              <Clock size={15} className="text-emerald-400" />
+              Trade Performance By Hour (IST +5:30)
+            </h4>
+            <p className="text-[11px] text-slate-400 mt-0.5">Execution volume, win rates, pip yield, and PnL breakdown per trading hour</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono bg-slate-950 border border-slate-800 text-slate-400 px-2.5 py-1 rounded-lg">
+              Active Hours: <strong className="text-emerald-400 font-bold">{hourlyStatsWithTrades.length}</strong> / 24
+            </span>
+          </div>
+        </div>
 
         {trades.length === 0 ? (
           <div id="chart-empty-info" className="py-12 text-center text-slate-600">
+            <Clock className="mx-auto mb-2 opacity-30" size={32} />
             <p className="text-xs">No trade history logs found to display hourly breakdown.</p>
+            <p className="text-[10px] text-slate-700 mt-1">Log trades with entry times to analyze performance by hour.</p>
           </div>
         ) : (
-          <div id="hourly-chart-bars" className="space-y-2">
-            {hourlyStats.map((stat, idx) => {
-              if (stat.tradesCount === 0) return null;
+          <div className="space-y-4">
+            {/* 24-Hour Visual Distribution Ribbon */}
+            <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-850">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider font-semibold">24-Hour Execution Distribution</span>
+                <div className="flex items-center gap-3 text-[9px] font-mono text-slate-500">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> Profitable</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500"></span> Unprofitable</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-800"></span> Inactive</span>
+                </div>
+              </div>
               
-              const barColor = stat.netResult >= 0 ? "bg-emerald-500" : "bg-rose-500";
+              <div className="grid grid-cols-12 sm:grid-cols-24 gap-1">
+                {hourlyStats.map((stat, idx) => {
+                  const hasTrades = stat.tradesCount > 0;
+                  let bgCol = "bg-slate-900 hover:bg-slate-850 text-slate-500 border border-transparent";
+                  if (hasTrades) {
+                    bgCol = stat.netResult >= 0 
+                      ? "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30" 
+                      : "bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30";
+                  }
+                  return (
+                    <div
+                      key={idx}
+                      title={`${String(stat.hour).padStart(2, "0")}:00 IST – ${stat.tradesCount} trade(s), Net: $${stat.netResult.toFixed(1)}, Pips: ${stat.totalPips}`}
+                      className={`h-9 rounded flex flex-col items-center justify-center text-[9px] font-mono font-bold transition-all cursor-default ${bgCol}`}
+                    >
+                      <span>{String(stat.hour).padStart(2, "0")}</span>
+                      {hasTrades && (
+                        <span className="text-[8px] opacity-90 leading-none">
+                          {stat.tradesCount}t
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
-              return (
-                <div id={`hour-row-${stat.hour}`} key={idx} className="flex items-center gap-3 text-xs">
-                  <span className="w-16 font-mono text-slate-400 text-right">{String(stat.hour).padStart(2, "0")}:00 IST+5:30</span>
-                  
-                  {/* Visual Bar representation */}
-                  <div className="flex-1 bg-slate-950 rounded-full h-4 overflow-hidden relative border border-slate-850 flex items-center">
-                    <div 
-                      className={`h-full ${barColor} opacity-20`}
-                      style={{ width: `${Math.min(100, Math.max(15, stat.winRate))}%` }}
-                    />
-                    <div className="absolute left-2 text-[10px] font-mono text-slate-300 font-bold">
-                      {stat.tradesCount} {stat.tradesCount === 1 ? "trade" : "trades"} • Win Rate: {stat.winRate}%
+            {/* Grid of Active Hour Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {hourlyStats.map((stat, idx) => {
+                if (stat.tradesCount === 0) return null;
+                const sessionName = getTradingSession(`${String(stat.hour).padStart(2, "0")}:00`);
+                const isProfitable = stat.netResult >= 0;
+
+                return (
+                  <div
+                    id={`hour-card-${stat.hour}`}
+                    key={idx}
+                    className="bg-slate-950 border border-slate-800 hover:border-slate-700/80 rounded-xl p-3.5 flex flex-col justify-between transition-all"
+                  >
+                    <div>
+                      {/* Card Header: Hour Range & Session Tag */}
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <span className="text-xs font-mono font-bold text-slate-200">
+                            {String(stat.hour).padStart(2, "0")}:00 – {String((stat.hour + 1) % 24).padStart(2, "0")}:00 <span className="text-[10px] text-slate-500">IST</span>
+                          </span>
+                          <span className="text-[9px] font-mono text-indigo-400 block mt-0.5">
+                            {sessionName}
+                          </span>
+                        </div>
+                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                          stat.winRate >= 50 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                        }`}>
+                          {stat.winRate}% WR
+                        </span>
+                      </div>
+
+                      {/* Trades Count & Win/Loss Pill */}
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 mb-2">
+                        <span>{stat.tradesCount} {stat.tradesCount === 1 ? "trade" : "trades"}</span>
+                        <span className="font-mono text-[10px] text-slate-300">
+                          <strong className="text-emerald-400">{stat.winsCount}W</strong> / <strong className="text-rose-400">{stat.lossesCount}L</strong>
+                        </span>
+                      </div>
+
+                      {/* Visual Win Rate Progress Bar */}
+                      <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden flex mb-3">
+                        <div
+                          className="bg-emerald-500 h-full transition-all"
+                          style={{ width: `${stat.winRate}%` }}
+                        />
+                        <div
+                          className="bg-rose-500 h-full transition-all"
+                          style={{ width: `${100 - stat.winRate}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Bottom Result Row: PnL and Pips */}
+                    <div className="border-t border-slate-900 pt-2.5 flex justify-between items-center text-xs">
+                      <div>
+                        <span className="text-[9px] font-mono text-slate-500 uppercase block">Net PnL</span>
+                        <span className={`font-mono font-bold ${isProfitable ? "text-emerald-400" : "text-rose-400"}`}>
+                          {isProfitable ? "+" : ""}${stat.netResult.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[9px] font-mono text-slate-500 uppercase block">Net Pips</span>
+                        <span className={`font-mono font-bold ${stat.totalPips >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                          {stat.totalPips >= 0 ? "+" : ""}{stat.totalPips.toFixed(1)} pips
+                        </span>
+                      </div>
                     </div>
                   </div>
-
-                  <span className={`w-24 text-right font-mono font-bold ${stat.netResult >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {stat.netResult >= 0 ? "+" : ""}${stat.netResult.toFixed(2)}
-                  </span>
-                </div>
-              );
-            })}
-            <p className="text-[10px] text-slate-500 font-mono text-center pt-2">Rows only generated for active execution hours.</p>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
