@@ -1,101 +1,151 @@
-import React, { useState } from "react";
-import { AlertCircle, Brain, Smile, Activity, RefreshCw, BarChart4, Compass, Award, ShieldAlert, HeartCrack, ChevronRight } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  Brain,
+  AlertTriangle,
+  Smile,
+  ShieldAlert,
+  HeartCrack,
+  Lightbulb,
+  Plus,
+  Trash2,
+  CheckCircle,
+  TrendingDown,
+  Sparkles,
+  BookOpen,
+  Filter
+} from "lucide-react";
 import { Trade } from "../types";
 
 interface MistakeTrackerViewProps {
   trades: Trade[];
 }
 
+interface UserLearning {
+  id: string;
+  date: string;
+  category: "RISK" | "PSYCHOLOGY" | "EXECUTION" | "STRATEGY";
+  lesson: string;
+  mastered?: boolean;
+}
+
+const DEFAULT_LEARNINGS: UserLearning[] = [
+  {
+    id: "l1",
+    date: "2026-08-15",
+    category: "PSYCHOLOGY",
+    lesson: "Never enter a trade immediately after taking a loss. Take a 15-minute screen break to avoid revenge impulses.",
+    mastered: true
+  },
+  {
+    id: "l2",
+    date: "2026-08-20",
+    category: "RISK",
+    lesson: "Always fix lot size before opening orders. Never adjust stop-loss further away once a position is active.",
+    mastered: false
+  },
+  {
+    id: "l3",
+    date: "2026-08-25",
+    category: "EXECUTION",
+    lesson: "Wait for the 1-hour candle close confirmation before entering breakout continuations on Gold (XAU/USD).",
+    mastered: false
+  }
+];
+
 export default function MistakeTrackerView({ trades }: MistakeTrackerViewProps) {
-  const [selectedEmotionFilter, setSelectedEmotionFilter] = useState<string>("ALL");
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("ALL");
+  const [newLessonText, setNewLessonText] = useState("");
+  const [newLessonCategory, setNewLessonCategory] = useState<"RISK" | "PSYCHOLOGY" | "EXECUTION" | "STRATEGY">("PSYCHOLOGY");
+  
+  // Custom learnings persistent storage
+  const [learnings, setLearnings] = useState<UserLearning[]>(() => {
+    const cached = localStorage.getItem("mm_user_learnings");
+    return cached ? JSON.parse(cached) : DEFAULT_LEARNINGS;
+  });
 
-  // Calculate Streak Analytics
-  const calculateStreaks = () => {
-    if (trades.length === 0) {
-      return {
-        bestWinStreak: 0,
-        currentStreak: 0,
-        currentStreakType: "NONE" as "WIN" | "LOSS" | "NONE",
-        streakDriftRisk: "Low"
-      };
-    }
+  useEffect(() => {
+    localStorage.setItem("mm_user_learnings", JSON.stringify(learnings));
+  }, [learnings]);
 
-    // Sort chronologically (oldest first to process sequentially)
-    const cronTrades = [...trades].sort((a,b) => a.entryDate.localeCompare(b.entryDate));
+  const handleAddLearning = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLessonText.trim()) return;
 
-    let maxWinStreak = 0;
-    let currentWinStreak = 0;
-    
-    let currentStreakCount = 0;
-    let currentStreakType: string = "NONE";
-    
-    let driftWarning = "Low";
-
-    cronTrades.forEach((t) => {
-      const isWin = t.status === "WIN";
-      
-      if (isWin) {
-        currentWinStreak++;
-        if (currentWinStreak > maxWinStreak) {
-          maxWinStreak = currentWinStreak;
-        }
-
-        if (currentStreakType === "WIN") {
-          currentStreakCount++;
-        } else {
-          currentStreakType = "WIN";
-          currentStreakCount = 1;
-        }
-      } else if (t.status === "LOSS") {
-        currentWinStreak = 0;
-        if (currentStreakType === "LOSS") {
-          currentStreakCount++;
-        } else {
-          currentStreakType = "LOSS";
-          currentStreakCount = 1;
-        }
-      } else {
-        // BREAK EVEN: don't break, skip or preserve
-      }
-    });
-
-    if (currentStreakType === "WIN" && currentStreakCount >= 3) {
-      driftWarning = "⚠️ Overconfidence Risk: Lot-size drift warning. Slow down setups.";
-    } else if (currentStreakType === "LOSS" && currentStreakCount >= 3) {
-      driftWarning = "🚨 Tilt Overtrading Alert: Revenge triggers detected. Pause dashboard.";
-    }
-
-    return {
-      bestWinStreak: maxWinStreak,
-      currentStreak: currentStreakCount,
-      currentStreakType,
-      streakDriftRisk: driftWarning
+    const newEntry: UserLearning = {
+      id: "learn_" + Date.now(),
+      date: new Date().toISOString().split("T")[0],
+      category: newLessonCategory,
+      lesson: newLessonText.trim(),
+      mastered: false
     };
+
+    setLearnings(prev => [newEntry, ...prev]);
+    setNewLessonText("");
   };
 
-  const streakStats = calculateStreaks();
+  const handleToggleMastered = (id: string) => {
+    setLearnings(prev => prev.map(l => l.id === id ? { ...l, mastered: !l.mastered } : l));
+  };
+
+  const handleDeleteLearning = (id: string) => {
+    setLearnings(prev => prev.filter(l => l.id !== id));
+  };
 
   // Evaluate Mistake Statistics
-  const getMistakeStatistics = () => {
-    // Categories count & cost
-    // Tags: 'FOMO', 'Revenge trade', 'Overtrading', 'Early exit', 'Late entry', 'Ignored stop loss', 'News trade', 'Emotional trade'
-    const mistakeMetrics: Record<string, { count: number; cost: number; description: string }> = {
-      "FOMO": { count: 0, cost: 0, description: "Fear Of Missing Out. Entering setups late without clean support confluence." },
-      "Revenge trade": { count: 0, cost: 0, description: "Forcing entry sizes right after a loss to make back capital rapidly." },
-      "Overtrading": { count: 0, cost: 0, description: "Trading outside focus session ranges, racking up excessive commissions." },
-      "Early exit": { count: 0, cost: 0, description: "Bailing on winning targets too early due to fear, leaving large risk/reward gains behind." },
-      "Late entry": { count: 0, cost: 0, description: "Chasing a move after it has already extended past comfortable risk stops." },
-      "Ignored stop loss": { count: 0, cost: 0, description: "Moving stop-loss structures wider, widening localized drawdowns." },
-      "News trade": { count: 0, cost: 0, description: "Executing setups during blind high-slippage fundamental news releases." },
-      "Emotional trade": { count: 0, cost: 0, description: "Sloppy execution lacking rule check due to anxiety or physical fatigue." }
+  const mistakeStatsInfo = useMemo(() => {
+    const mistakeMetrics: Record<string, { count: number; cost: number; description: string; fix: string }> = {
+      "FOMO": {
+        count: 0,
+        cost: 0,
+        description: "Fear Of Missing Out — chasing rapid candle moves without waiting for pullbacks.",
+        fix: "Set pending limit orders at confirmed support/resistance levels instead of market execution."
+      },
+      "Revenge trade": {
+        count: 0,
+        cost: 0,
+        description: "Forcing trades right after a loss to recover capital rapidly.",
+        fix: "Implement a mandatory 15-minute cooldown rule after any losing trade."
+      },
+      "Overtrading": {
+        count: 0,
+        cost: 0,
+        description: "Trading excessively during low-volume sessions, racking up spread costs.",
+        fix: "Restrict executions strictly to your primary trading session (e.g. London / New York)."
+      },
+      "Early exit": {
+        count: 0,
+        cost: 0,
+        description: "Cutting winning setups too early out of fear, capping upside reward.",
+        fix: "Scale out half position at 1:1 and let the remaining half run to the predetermined target."
+      },
+      "Late entry": {
+        count: 0,
+        cost: 0,
+        description: "Entering after price has already moved significantly, resulting in poor risk-to-reward.",
+        fix: "If entry price is more than 5 pips away from planned entry, cancel the setup."
+      },
+      "Ignored stop loss": {
+        count: 0,
+        cost: 0,
+        description: "Widening or removing stop-loss structures, multiplying drawdown size.",
+        fix: "Hard-code stop loss in terminal immediately at order entry and never modify it wider."
+      },
+      "News trade": {
+        count: 0,
+        cost: 0,
+        description: "Trading during high-impact news releases with extreme volatility & slippage.",
+        fix: "Do not open new positions 15 minutes before and after high-impact economic releases."
+      },
+      "Emotional trade": {
+        count: 0,
+        cost: 0,
+        description: "Trading under stress, anger, or fatigue without checking your rules checklist.",
+        fix: "Rate your mental readiness (1-10) before trading; sit out if below 7."
+      }
     };
 
     let totalMistakeCount = 0;
     let totalMistakeLosses = 0;
-
-    // Track mistakes by hour of day (0..23) to assess hourly densities
-    const hourlyMistakesDensity: Record<number, number> = {};
-    for (let h = 0; h < 24; h++) hourlyMistakesDensity[h] = 0;
 
     trades.forEach(t => {
       const mTags = t.mistakeTags || [];
@@ -109,297 +159,294 @@ export default function MistakeTrackerView({ trades }: MistakeTrackerViewProps) 
             totalMistakeLosses += Math.abs(pnl);
           }
           totalMistakeCount++;
-          
-          if (t.entryTime) {
-            const hr = parseInt(t.entryTime.split(":")[0]);
-            if (!isNaN(hr)) {
-              hourlyMistakesDensity[hr] = (hourlyMistakesDensity[hr] || 0) + 1;
-            }
-          }
         }
       });
     });
 
     const rankList = Object.entries(mistakeMetrics)
       .map(([name, data]) => ({ name, ...data }))
-      .sort((a,b) => b.cost - a.cost);
-
-    // Find prime high-risk hours for mistakes
-    const highRiskHours = Object.entries(hourlyMistakesDensity)
-      .map(([hrStr, count]) => ({ hour: parseInt(hrStr), count }))
-      .sort((a,b) => b.count - a.count)
-      .filter(h => h.count > 0);
+      .sort((a, b) => b.cost - a.cost);
 
     return {
       totalMistakeCount,
       totalMistakeLosses,
-      byMistake: rankList,
-      highRiskHoursList: highRiskHours.slice(0, 3)
+      byMistake: rankList
     };
-  };
+  }, [trades]);
 
-  const mistakeStatsInfo = getMistakeStatistics();
+  // Automated Data-Driven Learnings from actual logs
+  const dynamicLearnings = useMemo(() => {
+    const insights: string[] = [];
 
-  // Psychological Journal correlation stats helper
-  const getPsychologicalCorrelations = () => {
-    // group trades by emotionalState state
-    const correlations: Record<string, { count: number; netResult: number; wins: number; avgConfidence: number }> = {};
-    
-    trades.forEach(t => {
-      const state = t.emotionalState || "calm";
-      const pnl = Number(t.profitLoss) || 0;
-      const isWin = t.status === "WIN";
-      const confidence = t.psychConfidence || 5;
-
-      if (!correlations[state]) {
-        correlations[state] = { count: 0, netResult: 0, wins: 0, avgConfidence: 0 };
-      }
-
-      correlations[state].count++;
-      correlations[state].netResult += pnl;
-      if (isWin) correlations[state].wins++;
-      correlations[state].avgConfidence += confidence;
-    });
-
-    return Object.entries(correlations).map(([emotion, data]) => {
-      const winRate = data.count > 0 ? (data.wins / data.count) * 100 : 0;
-      const avgConf = data.count > 0 ? (data.avgConfidence / data.count) : 5;
-      return {
-        emotion,
-        count: data.count,
-        netResult: data.netResult,
-        winRate: Math.round(winRate),
-        avgConfidence: Number(avgConf.toFixed(1))
-      };
-    }).sort((a,b) => b.netResult - a.netResult);
-  };
-
-  const emotionalCorrelations = getPsychologicalCorrelations();
-
-  // Drawdown Intelligence calculations
-  const calculateDrawdownStats = () => {
-    if (trades.length === 0) {
-      return { maxDrawdown: 0, currentDrawdown: 0, startSource: "N/A" };
+    // 1. Most costly mistake insight
+    const topCostly = mistakeStatsInfo.byMistake.find(m => m.cost > 0);
+    if (topCostly) {
+      insights.push(
+        `Your most expensive behavioral pitfall is "${topCostly.name}" costing -$${topCostly.cost.toFixed(2)}. ${topCostly.fix}`
+      );
     }
 
-    // Sort oldest first
-    const cronTrades = [...trades].sort((a,b) => a.entryDate.localeCompare(b.entryDate));
+    // 2. Emotional frame correlation
+    const calmTrades = trades.filter(t => t.emotionalState === "calm" || !t.emotionalState);
+    const emotionalTrades = trades.filter(t => t.emotionalState && t.emotionalState !== "calm" && t.emotionalState !== "confident");
     
-    let peak = 0;
-    let balance = 10000; // pivot value
-    let maxDD = 0;
-    let currentDD = 0;
-    
-    let drawdownStartTrade: Trade | null = null;
-    let inDrawdown = false;
+    if (calmTrades.length >= 2) {
+      const calmWins = calmTrades.filter(t => Number(t.profitLoss) > 0).length;
+      const calmWinRate = Math.round((calmWins / calmTrades.length) * 100);
+      insights.push(`When trading in a Calm state, your win rate is ${calmWinRate}% (${calmTrades.length} trades).`);
+    }
 
-    cronTrades.forEach(t => {
-      balance += (Number(t.profitLoss) || 0);
-      if (balance > peak) {
-        peak = balance;
-        inDrawdown = false;
-      } else {
-        if (!inDrawdown) {
-          drawdownStartTrade = t; // Found start of drawdown!
-          inDrawdown = true;
-        }
-        const dd = ((peak - balance) / peak) * 100;
-        if (dd > maxDD) {
-          maxDD = dd;
-        }
-        currentDD = dd;
+    if (emotionalTrades.length >= 1) {
+      const emotionalLosses = emotionalTrades.reduce((sum, t) => sum + (Number(t.profitLoss) < 0 ? Math.abs(Number(t.profitLoss)) : 0), 0);
+      if (emotionalLosses > 0) {
+        insights.push(`Emotional setups (anxious, fomo, revenge) led to -$${emotionalLosses.toFixed(2)} in losses.`);
       }
-    });
+    }
 
-    return {
-      maxDrawdown: Number(maxDD.toFixed(1)),
-      currentDrawdown: Number(currentDD.toFixed(1)),
-      startSource: drawdownStartTrade ? `${(drawdownStartTrade as Trade).symbol} (${(drawdownStartTrade as Trade).entryTime} NY)` : "N/A",
-      startMistake: drawdownStartTrade ? ((drawdownStartTrade as Trade).mistakeTags?.[0] || "No Mistake Tagged") : "N/A"
-    };
-  };
+    if (insights.length === 0) {
+      insights.push("Continue logging setups and tagging mistakes to generate automated tactical learnings.");
+    }
 
-  const drawdownIntel = calculateDrawdownStats();
+    return insights;
+  }, [trades, mistakeStatsInfo]);
+
+  // Filtered learnings list
+  const filteredLearnings = useMemo(() => {
+    if (selectedCategoryFilter === "ALL") return learnings;
+    return learnings.filter(l => l.category === selectedCategoryFilter);
+  }, [learnings, selectedCategoryFilter]);
 
   return (
-    <div id="mistake-analysis-workspace" className="space-y-6">
+    <div id="mistakes-learnings-workspace" className="space-y-6">
 
-      {/* 1. STREAKS & DRAWDOWN EXECUTIVE HEADER CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        
-        {/* Drawdown Intelligence Card */}
-        <div id="dd-intel-card" className="bg-slate-900 border border-slate-850 p-5 rounded-xl text-white flex flex-col justify-between">
-          <div>
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">Drawdown Intelligence</span>
-              <span className="text-xs bg-rose-500/10 text-rose-450 border border-rose-500/20 px-2 py-0.5 rounded font-mono font-bold">Max DD: {drawdownIntel.maxDrawdown}%</span>
+      {/* 1. EXECUTIVE SUMMARY CARDS */}
+      <div id="mistakes-summary-cards" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-center items-center text-center">
+          <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Mistakes Recorded</span>
+          <span className="text-2xl font-bold font-mono text-white">{mistakeStatsInfo.totalMistakeCount}</span>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-center items-center text-center">
+          <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Capital Leakage</span>
+          <span className="text-2xl font-bold font-mono text-rose-400">
+            {mistakeStatsInfo.totalMistakeLosses > 0 ? `-$${mistakeStatsInfo.totalMistakeLosses.toFixed(2)}` : "$0.00"}
+          </span>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-center items-center text-center">
+          <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Learnings Documented</span>
+          <span className="text-2xl font-bold font-mono text-indigo-400">{learnings.length}</span>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-center items-center text-center">
+          <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Lessons Mastered</span>
+          <span className="text-2xl font-bold font-mono text-emerald-400">
+            {learnings.filter(l => l.mastered).length} / {learnings.length}
+          </span>
+        </div>
+      </div>
+
+      {/* 2. AUTOMATED DATA-DRIVEN KEY TAKEAWAYS */}
+      <div id="data-learnings-card" className="bg-slate-900 border border-slate-800 rounded-xl p-5 text-white">
+        <div className="flex items-center justify-between border-b border-slate-800/80 pb-3 mb-3">
+          <h4 className="text-xs font-semibold uppercase font-mono tracking-wider text-slate-300 flex items-center gap-2">
+            <Sparkles size={15} className="text-amber-400" />
+            Automated Key Learnings from Journal Data
+          </h4>
+          <span className="text-[10px] font-mono text-slate-500">Auto-generated</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {dynamicLearnings.map((insight, idx) => (
+            <div key={idx} className="bg-slate-950 border border-slate-850 p-3 rounded-lg flex items-start gap-2.5">
+              <Lightbulb size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-slate-300 leading-relaxed font-sans">{insight}</p>
             </div>
-            
-            <div className="mt-4 space-y-2">
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-400">Current active drawdown:</span>
-                <span className="font-mono text-slate-200 font-bold">{drawdownIntel.currentDrawdown}%</span>
-              </div>
-              <div className="flex justify-between text-xs pt-1 border-t border-slate-850">
-                <span className="text-slate-400">Frequent drawdown trigger:</span>
-                <span className="font-mono text-rose-400 font-bold max-w-[130px] truncate" title={drawdownIntel.startMistake}>
-                  {drawdownIntel.startMistake}
-                </span>
-              </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 3. TWO-COLUMN LAYOUT: MISTAKES BREAKDOWN & USER LEARNINGS NOTEBOOK */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* Column 1: Behavioral Mistakes & Cost Breakdown */}
+        <div id="behavioral-mistakes-column" className="bg-slate-900 border border-slate-800 rounded-xl p-5 text-white space-y-4">
+          <div className="flex justify-between items-center border-b border-slate-800/80 pb-3">
+            <div>
+              <h4 className="text-xs font-semibold uppercase font-mono tracking-wider text-slate-300 flex items-center gap-2">
+                <HeartCrack size={15} className="text-rose-400" />
+                Mistakes & Capital Leakage
+              </h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">Track recurring behavioral pitfalls and their direct financial cost</p>
             </div>
           </div>
-          
-          <div className="mt-4 pt-2 border-t border-slate-850 text-[10px] text-slate-500 font-mono">
-            💡 Drawdowns usually initiate with a single late chase trade.
+
+          <div className="space-y-3">
+            {mistakeStatsInfo.byMistake.map((m, idx) => {
+              const hasOccurred = m.count > 0;
+              return (
+                <div
+                  key={idx}
+                  className={`p-3 rounded-xl border transition-all ${
+                    hasOccurred
+                      ? "bg-slate-950 border-slate-800 hover:border-slate-700"
+                      : "bg-slate-950/40 border-slate-850/60 opacity-65"
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <strong className="text-xs text-slate-200">{m.name}</strong>
+                      <span className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded ${
+                        hasOccurred ? "bg-slate-900 text-slate-300 border border-slate-800" : "text-slate-500"
+                      }`}>
+                        {m.count} event{m.count !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+
+                    <span className={`text-xs font-mono font-bold ${m.cost > 0 ? "text-rose-400" : "text-slate-500"}`}>
+                      {m.cost > 0 ? `-$${m.cost.toFixed(2)}` : "$0.00"}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-400 leading-relaxed font-sans mb-2">
+                    {m.description}
+                  </p>
+
+                  <div className="bg-slate-900/80 p-2 rounded border border-slate-850/80 text-[10px] text-emerald-400/90 flex items-start gap-1.5">
+                    <span className="font-mono font-bold text-slate-400">FIX:</span>
+                    <span>{m.fix}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* Dynamic Streak Assessment Card */}
-        <div id="streak-assessment-card" className="bg-slate-900 border border-slate-850 p-5 rounded-xl text-white flex flex-col justify-between">
-          <div>
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">Historical System Streaks</span>
-              <span className="text-xs bg-emerald-500/10 text-emerald-450 border border-emerald-500/20 px-2 py-0.5 rounded font-mono font-bold">Best Win Streak: {streakStats.bestWinStreak}</span>
-            </div>
-
-            <div className="mt-3.5 space-y-1.5">
-              <p className="text-xs text-slate-400">Current active sequence:</p>
-              <div className="flex items-center gap-2">
-                <span className={`text-xl font-bold font-mono ${streakStats.currentStreakType === "WIN" ? "text-emerald-400" : "text-rose-450"}`}>
-                  {streakStats.currentStreak} {streakStats.currentStreakType} SPREE
-                </span>
+        {/* Column 2: Personal Trader Learnings & Notes Notebook */}
+        <div id="user-learnings-notebook-column" className="bg-slate-900 border border-slate-800 rounded-xl p-5 text-white space-y-4 flex flex-col justify-between">
+          <div className="space-y-4">
+            <div className="flex flex-wrap justify-between items-center gap-2 border-b border-slate-800/80 pb-3">
+              <div>
+                <h4 className="text-xs font-semibold uppercase font-mono tracking-wider text-slate-300 flex items-center gap-2">
+                  <BookOpen size={15} className="text-indigo-400" />
+                  My Trading Learnings & Rules
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">Your personal lessons learned to prevent repeating mistakes</p>
               </div>
-              <p className="text-[11px] text-slate-400 font-medium">
-                {streakStats.streakDriftRisk}
-              </p>
+
+              {/* Category Filter */}
+              <div className="flex items-center gap-1">
+                {["ALL", "PSYCHOLOGY", "RISK", "EXECUTION"].map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategoryFilter(cat)}
+                    className={`text-[9px] font-mono px-2 py-0.5 rounded transition-colors ${
+                      selectedCategoryFilter === cat
+                        ? "bg-indigo-600/30 text-indigo-300 border border-indigo-500/50 font-bold"
+                        : "bg-slate-950 text-slate-400 border border-slate-850 hover:text-slate-200"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="mt-4 pt-2 border-t border-slate-850 text-[10px] text-slate-500 font-mono">
-            ⚖️ Compounding win sprees frequently causes risk control breaches.
-          </div>
-        </div>
-
-        {/* Psychological Slider Summary Metric */}
-        <div id="emotional-grade-overview-card" className="bg-slate-900 border border-slate-850 p-5 rounded-xl text-white flex flex-col justify-between">
-          <div>
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">Trading Psychology Rating</span>
-              <span className="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded font-mono font-bold">H1 Emotional Index</span>
-            </div>
-
-            <div className="mt-4 space-y-1.5">
-              <p className="text-xs text-slate-400">Your most profitable emotional frame value:</p>
-              {emotionalCorrelations.length > 0 ? (
-                <div className="space-y-1">
-                  <span className="text-sm font-bold uppercase text-emerald-400 flex items-center gap-1">
-                    <Smile size={14} />
-                    {emotionalCorrelations[0].emotion} Mode ({emotionalCorrelations[0].winRate}% Win-Rate)
-                  </span>
-                  <span className="text-[10px] text-slate-400 block font-mono">
-                    Net result in this frame: +${emotionalCorrelations[0].netResult.toFixed(1)}
-                  </span>
+            {/* Learnings List */}
+            <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
+              {filteredLearnings.length === 0 ? (
+                <div className="text-center py-8 text-slate-600">
+                  <BookOpen size={24} className="mx-auto mb-1.5 opacity-30" />
+                  <p className="text-xs">No learnings logged in this category yet.</p>
                 </div>
               ) : (
-                <p className="text-xs text-slate-500 italic pt-1">Initialize emotional logs inside the trade setup entries.</p>
+                filteredLearnings.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`p-3 rounded-xl border transition-all flex items-start justify-between gap-3 ${
+                      item.mastered
+                        ? "bg-emerald-950/10 border-emerald-500/20"
+                        : "bg-slate-950 border-slate-850 hover:border-slate-800"
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[8px] font-mono uppercase px-1.5 py-0.5 rounded font-bold ${
+                          item.category === "RISK"
+                            ? "bg-rose-950 text-rose-400 border border-rose-900/60"
+                            : item.category === "PSYCHOLOGY"
+                            ? "bg-purple-950 text-purple-400 border border-purple-900/60"
+                            : "bg-blue-950 text-blue-400 border border-blue-900/60"
+                        }`}>
+                          {item.category}
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-500">{item.date}</span>
+                        {item.mastered && (
+                          <span className="text-[9px] font-mono text-emerald-400 font-bold flex items-center gap-1">
+                            <CheckCircle size={10} /> Mastered
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed font-sans">{item.lesson}</p>
+                    </div>
+
+                    <div className="flex items-center gap-1 flex-shrink-0 pt-0.5">
+                      <button
+                        onClick={() => handleToggleMastered(item.id)}
+                        className={`p-1 rounded text-xs transition-colors ${
+                          item.mastered ? "text-emerald-400 hover:text-emerald-300" : "text-slate-500 hover:text-emerald-400"
+                        }`}
+                        title={item.mastered ? "Mark as in progress" : "Mark as mastered"}
+                      >
+                        <CheckCircle size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteLearning(item.id)}
+                        className="p-1 rounded text-slate-500 hover:text-rose-400 transition-colors"
+                        title="Delete lesson"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           </div>
 
-          <div className="mt-4 pt-2 border-t border-slate-850 text-[10px] text-slate-500 font-mono">
-            🧠 High stress inputs yield tight exits and decreased holding discipline.
-          </div>
-        </div>
-
-      </div>
-
-      {/* 2. MAIN SECTION: COST OF MISTAKES TABLE & ANALYSIS */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Cost of mistakes ranking breakdown */}
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-850 p-5 rounded-xl text-white space-y-4">
-          <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-            <h4 className="text-xs font-mono font-bold text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
-              <HeartCrack size={16} className="text-rose-450" />
-              Behavioral Mistakes tracker Leakage List
-            </h4>
-            <span className="text-[10px] bg-rose-950 text-rose-400 px-2.5 py-0.5 border border-rose-900 rounded font-mono font-bold">
-              Total Leakage Cost: -${mistakeStatsInfo.totalMistakeLosses.toFixed(2)}
-            </span>
-          </div>
-
-          {trades.length === 0 ? (
-            <p className="text-xs text-slate-500 py-12 text-center">Execute trades setup journal to analyze leakage cost analytics.</p>
-          ) : (
-            <div id="mistakes-detailed-table" className="space-y-3">
-              {mistakeStatsInfo.byMistake.map((m, idx) => (
-                <div key={idx} className="bg-slate-950 border border-slate-850 p-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-slate-750 transition-all">
-                  <div className="space-y-1 md:max-w-md">
-                    <div className="flex items-center gap-2">
-                      <strong className="text-xs text-slate-105 font-bold">{m.name}</strong>
-                      <span className="text-[9px] bg-slate-900 text-slate-400 px-2 py-0.2 rounded font-mono font-semibold">{m.count} setup events</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 leading-relaxed font-sans">{m.description}</p>
-                  </div>
-
-                  <div className="text-left md:text-right">
-                    <span className="text-[9px] text-slate-500 uppercase font-mono block">Direct PnL Cost</span>
-                    <span className={`text-sm font-mono font-bold ${m.cost > 0 ? "text-rose-405" : "text-slate-400"}`}>
-                      {m.cost > 0 ? `-$${m.cost.toFixed(2)}` : "$0.00 (Untriggered)"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Right card: Hourly densities & psychological correlations list */}
-        <div className="bg-slate-900 border border-slate-850 p-5 rounded-xl text-white flex flex-col justify-between">
-          <div className="space-y-4">
-            <div className="border-b border-slate-800 pb-2">
-              <span className="text-[10px] text-slate-500 font-mono uppercase block">Mistake Densities</span>
-              <h4 className="text-sm font-bold text-slate-205 mt-0.5">High-Risk Hourly Triggers</h4>
+          {/* Add Learning Note Form */}
+          <form onSubmit={handleAddLearning} className="mt-4 pt-3 border-t border-slate-850/80 space-y-2.5">
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] font-mono text-slate-400 uppercase font-semibold">Log a New Trading Lesson</span>
+              <select
+                value={newLessonCategory}
+                onChange={(e) => setNewLessonCategory(e.target.value as any)}
+                className="bg-slate-950 border border-slate-800 text-slate-300 text-[10px] font-mono px-2 py-0.5 rounded focus:outline-none focus:border-indigo-500 cursor-pointer"
+              >
+                <option value="PSYCHOLOGY">Psychology</option>
+                <option value="RISK">Risk Management</option>
+                <option value="EXECUTION">Execution & Timing</option>
+                <option value="STRATEGY">Strategy & Setup</option>
+              </select>
             </div>
 
-            {mistakeStatsInfo.highRiskHoursList.length === 0 ? (
-              <p className="text-xs text-slate-550 italic py-10 text-center">No high density mistake hour cluster recorded yet.</p>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-[11px] text-slate-400">Most common hours your rules or mistake tags trigger:</p>
-                {mistakeStatsInfo.highRiskHoursList.map((cl, idx) => (
-                  <div key={idx} className="bg-slate-950 p-2.5 rounded border border-slate-850 flex justify-between items-center text-xs">
-                    <span className="font-mono text-slate-202 font-bold">{cl.hour}:00 IST +5:30 Hour</span>
-                    <span className="text-rose-400 font-mono font-bold">{cl.count} mistake occurrences</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Psychological list */}
-            <div className="border-t border-slate-850 pt-4 mt-2">
-              <span className="text-[10px] text-slate-500 font-mono uppercase block">Correlation Matrix</span>
-              <h4 className="text-xs font-bold text-slate-300 mt-1 mb-2">Emotion VS Performance outcome</h4>
-              
-              <div className="space-y-1.5 max-h-[140px] overflow-y-auto">
-                {emotionalCorrelations.map((ec, idx) => (
-                  <div key={idx} className="flex justify-between items-center text-[11px] py-1 border-b border-slate-950">
-                    <span className="uppercase text-slate-350 font-mono font-bold">{ec.emotion}</span>
-                    <div className="flex gap-3 text-right font-mono">
-                      <span className="text-slate-550">{ec.count} trades</span>
-                      <span className={ec.netResult >= 0 ? "text-emerald-400" : "text-rose-400"}>
-                        {ec.netResult >= 0 ? "+" : ""}${ec.netResult.toFixed(0)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                required
+                placeholder="What did this session teach you? (e.g., Do not trade gold during high impact news)"
+                value={newLessonText}
+                onChange={(e) => setNewLessonText(e.target.value)}
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+              />
+              <button
+                type="submit"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3.5 py-2 rounded-lg font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <Plus size={14} /> Save
+              </button>
             </div>
-          </div>
-
-          <div className="bg-slate-950 p-2.5 rounded text-[10px] text-slate-500 font-mono mt-4 leading-normal">
-            🛡️ Tag your setups with an accurate Emotional State inside the Trade Journal form to track focus correlations real-time.
-          </div>
+          </form>
         </div>
 
       </div>
