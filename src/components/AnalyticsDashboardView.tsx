@@ -1,44 +1,37 @@
 import React, { useState } from "react";
 import { Trade, Transaction, HourlyStats } from "../types";
 import { getTradingSession } from "../utils";
-import { Calendar as CalendarIcon, Clock, Award, ShieldAlert, Zap, TrendingUp, TrendingDown, Target, BrainCircuit, Loader2, Sparkles, AlertCircle } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Award, ShieldAlert, TrendingUp, TrendingDown, Target, Sparkles, AlertCircle } from "lucide-react";
 
 interface AnalyticsDashboardViewProps {
   trades: Trade[];
   transactions: Transaction[];
-  onGenerateAIInsights: () => Promise<string>;
-  savedAIReport: string;
+  onGenerateAIInsights?: () => Promise<string>;
+  savedAIReport?: string;
 }
+
+// Helper to calculate pips for a single trade: 1 $ movement = 10 pips
+// BUY: (exitPrice - entryPrice) * 10
+// SELL: (entryPrice - exitPrice) * 10
+export const calculateTradePips = (t: Trade): number => {
+  const ep = Number(t.entryPrice);
+  const xp = Number(t.exitPrice);
+  if (isNaN(ep) || isNaN(xp) || ep === 0 || xp === 0) {
+    return 0;
+  }
+  const diff = t.type === "SELL" ? (ep - xp) : (xp - ep);
+  return Number((diff * 10).toFixed(2));
+};
 
 export default function AnalyticsDashboardView({
   trades,
   transactions,
-  onGenerateAIInsights,
-  savedAIReport
 }: AnalyticsDashboardViewProps) {
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => {
     const d = new Date();
     const offset = d.getTimezoneOffset();
     return new Date(d.getTime() - (offset * 60 * 1000)).toISOString().split("T")[0]; // YYYY-MM-DD
   });
-
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiReport, setAiReport] = useState(savedAIReport);
-  const [aiError, setAiError] = useState("");
-
-  const handleRunAICoach = async () => {
-    setAiLoading(true);
-    setAiError("");
-    try {
-      const report = await onGenerateAIInsights();
-      setAiReport(report);
-    } catch (err: any) {
-      console.error(err);
-      setAiError(err.message || "Could not generate AI report. Please check your Gemini API configuration.");
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
   // 1. Group trades by calendar date (entryDate) to calculate daily statistics
   const getDailyTransactions = (dateStr: string) => {
@@ -50,13 +43,30 @@ export default function AnalyticsDashboardView({
     const netResult = totalProfit - totalLoss;
     const winRate = dailyTrades.length > 0 ? (wins.length / dailyTrades.length) * 100 : 0;
 
+    let totalPipsCaptured = 0;
+    let totalPipsLost = 0;
+
+    dailyTrades.forEach(t => {
+      const pips = calculateTradePips(t);
+      if (pips > 0) {
+        totalPipsCaptured += pips;
+      } else if (pips < 0) {
+        totalPipsLost += Math.abs(pips);
+      }
+    });
+
+    const netPipsCaptured = totalPipsCaptured - totalPipsLost;
+
     return {
       trades: dailyTrades,
       tradesCount: dailyTrades.length,
       totalProfit,
       totalLoss,
       netResult,
-      winRate
+      winRate,
+      totalPipsCaptured,
+      totalPipsLost,
+      netPipsCaptured
     };
   };
 
@@ -440,7 +450,7 @@ export default function AnalyticsDashboardView({
                   <div className="grid grid-cols-2 gap-2">
                     <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
                       <span className="text-[9px] font-mono text-slate-500 uppercase block font-medium">Profit Sum</span>
-                      <span className="text-sm font-bold font-mono text-emerald-500">+${selectedDayInfo.totalProfit.toFixed(1)}</span>
+                      <span className="text-sm font-bold font-mono text-emerald-500">+{selectedDayInfo.totalProfit.toFixed(1)}</span>
                     </div>
                     <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
                       <span className="text-[9px] font-mono text-slate-500 uppercase block font-medium">Loss Sum</span>
@@ -456,20 +466,56 @@ export default function AnalyticsDashboardView({
                       </span>
                     </div>
                   </div>
+
+                  {/* Pip Performance Metrics */}
+                  <div className="border-t border-slate-850/80 pt-3 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-400">Pip Metrics</span>
+                      <span className="text-[9px] font-mono text-slate-500">$1 movement = 10 pips</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
+                        <span className="text-[9px] font-mono text-slate-500 uppercase block font-medium">Total Pips Captured</span>
+                        <span className="text-sm font-bold font-mono text-emerald-400">+{selectedDayInfo.totalPipsCaptured.toFixed(1)} pips</span>
+                      </div>
+                      <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-lg">
+                        <span className="text-[9px] font-mono text-slate-500 uppercase block font-medium">Total Pips Lost</span>
+                        <span className="text-sm font-bold font-mono text-rose-400">-{selectedDayInfo.totalPipsLost.toFixed(1)} pips</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-900 border border-slate-850 p-3 rounded-lg flex justify-between items-center">
+                      <div>
+                        <span className="text-[9px] font-mono text-slate-500 uppercase block">Net Pips Captured</span>
+                        <span className={`text-base font-mono font-bold ${selectedDayInfo.netPipsCaptured >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                          {selectedDayInfo.netPipsCaptured >= 0 ? "+" : ""}{selectedDayInfo.netPipsCaptured.toFixed(1)} pips
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
             )}
           </div>
 
           <div id="executed-trades-scroller" className="mt-4 border-t border-slate-800/80 pt-3 max-h-[140px] overflow-y-auto">
             <span className="text-[10px] font-mono text-slate-500 block mb-1">Trades list:</span>
-            {selectedDayInfo.trades.map((t, idx) => (
-              <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-slate-900 last:border-0">
-                <span className="font-semibold text-slate-200">{t.symbol} ({t.type})</span>
-                <span className={`font-mono ${Number(t.profitLoss) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                  {Number(t.profitLoss) >= 0 ? "+" : ""}${Number(t.profitLoss).toFixed(1)}
-                </span>
-              </div>
-            ))}
+            {selectedDayInfo.trades.map((t, idx) => {
+              const tradePips = calculateTradePips(t);
+              return (
+                <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-slate-900 last:border-0">
+                  <div className="flex items-center gap-1.5 truncate mr-2">
+                    <span className="font-semibold text-slate-200">{t.symbol} ({t.type})</span>
+                    <span className={`text-[10px] font-mono ${tradePips >= 0 ? "text-emerald-400/80" : "text-rose-400/80"}`}>
+                      ({tradePips >= 0 ? "+" : ""}{tradePips.toFixed(1)} pips)
+                    </span>
+                  </div>
+                  <span className={`font-mono flex-shrink-0 ${Number(t.profitLoss) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                    {Number(t.profitLoss) >= 0 ? "+" : ""}${Number(t.profitLoss).toFixed(1)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -544,10 +590,8 @@ export default function AnalyticsDashboardView({
         ) : (
           <div id="hourly-chart-bars" className="space-y-2">
             {hourlyStats.map((stat, idx) => {
-              // Only display some statistics for scannability, let's filter to hours with trades or render a nice timeline
               if (stat.tradesCount === 0) return null;
               
-              const pctOfMax = 100; // default length
               const barColor = stat.netResult >= 0 ? "bg-emerald-500" : "bg-rose-500";
 
               return (
@@ -632,7 +676,7 @@ export default function AnalyticsDashboardView({
           <p className="text-xs text-slate-500 py-4 text-center">Setup timing records must be entered to evaluate identified patterns.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-850">
+            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800">
               <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 mb-3">
                 <TrendingUp size={14} /> Only Profitable Setup Hours
               </span>
@@ -649,7 +693,7 @@ export default function AnalyticsDashboardView({
               </div>
             </div>
 
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-850">
+            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800">
               <span className="text-xs font-semibold text-rose-400 flex items-center gap-1.5 mb-3">
                 <TrendingDown size={14} /> High-Risk Unprofitable Setup Hours
               </span>
@@ -667,85 +711,6 @@ export default function AnalyticsDashboardView({
             </div>
           </div>
         )}
-      </div>
-
-      {/* 6. AI PERFORMANCE GRADINGS & REPORTS SECTION */}
-      <div id="ai-performance-coach-section" className="bg-slate-900 border border-slate-800 rounded-xl p-5 text-white">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-          <div>
-            <h3 className="text-sm font-semibold tracking-wide uppercase font-mono flex items-center gap-2">
-              <BrainCircuit size={16} className="text-emerald-400" />
-              Elite AI Performance & Habit Coach
-            </h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">Evaluate setup quality, entry timing, and psychological emotional bias tendencies.</p>
-          </div>
-          <button
-            id="btn-run-ai-coach"
-            onClick={handleRunAICoach}
-            disabled={aiLoading || trades.length === 0}
-            className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all self-stretch sm:self-auto disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer pointer-events-auto"
-          >
-            {aiLoading ? (
-              <>
-                <Loader2 size={14} className="animate-spin" />
-                Coaching Diagnostics Running...
-              </>
-            ) : (
-                <>
-                  <Sparkles size={14} />
-                  Run AI Coach Audit
-                </>
-            )}
-          </button>
-        </div>
-
-        {aiError && (
-          <div id="ai-error-banner" className="bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-lg p-3 text-xs mb-3 flex items-start gap-2">
-            <ShieldAlert size={16} className="flex-shrink-0 mt-0.5" />
-            <span>{aiError}</span>
-          </div>
-        )}
-
-        <div id="ai-report-box" className="bg-slate-950 rounded-xl p-5 border border-slate-850">
-          {aiReport ? (
-            <div id="ai-report-markdown-content" className="prose prose-invert prose-xs max-w-none text-slate-300 space-y-4">
-              {aiReport.split("\n").map((line, idx) => {
-                // Inline rendering support for headers, bullet points, and clean lists
-                if (line.startsWith("###")) {
-                  return <h5 key={idx} className="text-slate-100 font-bold border-b border-slate-850 pb-1 mt-4 text-xs font-mono uppercase">{line.replace("###", "").trim()}</h5>;
-                }
-                if (line.startsWith("##")) {
-                  return <h4 key={idx} className="text-emerald-400 font-bold border-b border-slate-800 pb-1.5 mt-4 text-sm uppercase">{line.replace("##", "").trim()}</h4>;
-                }
-                if (line.startsWith("#")) {
-                  return <h3 key={idx} className="text-emerald-400 font-bold text-base tracking-wider uppercase">{line.replace("#", "").trim()}</h3>;
-                }
-                if (line.startsWith("-") || line.startsWith("*")) {
-                  // Format with highlights
-                  const txt = line.replace(/^[-*]\s*/, "").trim();
-                  return (
-                    <li key={idx} className="list-disc ml-4 text-xs font-sans text-slate-300">
-                      {txt.split("**").map((tok, tIdx) => tIdx % 2 === 1 ? <strong key={tIdx} className="text-white font-semibold">{tok}</strong> : tok)}
-                    </li>
-                  );
-                }
-                // Paragraph text
-                return (
-                  <p key={idx} className="text-xs text-slate-300 leading-relaxed font-sans">
-                    {line.split("**").map((tok, tIdx) => tIdx % 2 === 1 ? <strong key={tIdx} className="text-slate-100">{tok}</strong> : tok)}
-                  </p>
-                );
-              })}
-            </div>
-          ) : (
-            <div id="ai-coach-placeholder" className="text-center py-12 text-slate-500">
-              <Sparkles className="mx-auto mb-3 text-slate-650 opacity-40 animate-pulse" size={32} />
-              <p className="text-xs">No audit report run yet.</p>
-              <p className="text-[11px] text-slate-600 mt-1">Click "Run AI Coach Audit" above to analyze revenge trades, patterns, and timing habits.</p>
-            </div>
-          )}
-        </div>
-
       </div>
 
     </div>
