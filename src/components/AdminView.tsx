@@ -206,16 +206,35 @@ export default function AdminView({ onFetchWithAuth, userRole, currentUserEmail 
 
                           {/* Delete button (Admin only, cannot delete own self) */}
                           {isAdmin && !isSelf && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteTargetEmail(u.email);
-                              }}
-                              className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-900 rounded transition-colors"
-                              title={`Delete user ${u.email}`}
-                            >
-                              <Trash2 size={13} />
-                            </button>
+                            deleteTargetEmail === u.email ? (
+                              <div className="flex items-center gap-1 bg-rose-950/70 border border-rose-900/80 rounded-lg p-1" onClick={e => e.stopPropagation()}>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDeleteUser(u.email); }}
+                                  disabled={deleting}
+                                  className="text-[9px] bg-rose-600 hover:bg-rose-700 text-white px-2 py-0.5 rounded font-bold cursor-pointer transition-colors"
+                                >
+                                  {deleting ? "..." : "Yes"}
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setDeleteTargetEmail(null); }}
+                                  className="text-[9px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded font-semibold cursor-pointer transition-colors"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedUserEmail(u.email);
+                                  setDeleteTargetEmail(u.email);
+                                }}
+                                className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-900 rounded transition-colors"
+                                title={`Delete user ${u.email}`}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )
                           )}
                         </div>
                       </div>

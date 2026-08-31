@@ -33,11 +33,12 @@ import {
   Moon, 
   Brain, 
   CheckSquare, 
-  TrendingUp
+  TrendingUp,
+  History
 } from "lucide-react";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"journal" | "analytics" | "simulator" | "community" | "admin" | "security" | "mistakes" | "compliance" | "coach">("journal");
+  const [activeTab, setActiveTab] = useState<"journal" | "history" | "analytics" | "simulator" | "community" | "admin" | "security" | "mistakes" | "compliance" | "coach">("journal");
 
   // --- Auth States ---
   const [userEmail, setUserEmail] = useState<string | null>(() => localStorage.getItem("mm_user_email"));
@@ -582,6 +583,17 @@ export default function App() {
           <BookOpen size={13} /> My Trades
         </button>
         <button
+          id="tab-btn-history"
+          onClick={() => setActiveTab("history")}
+          className={`px-3 py-1.5 text-xs font-mono rounded transition-all flex items-center gap-1.5 ${
+            activeTab === "history"
+              ? "bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-800 border-b-2 border-b-indigo-650 dark:border-b-indigo-500 text-indigo-655 dark:text-indigo-400 font-bold shadow-xs animate-none"
+              : "text-slate-600 dark:text-slate-355 hover:bg-white/50 dark:hover:bg-slate-800/50"
+          }`}
+        >
+          <History size={13} /> Trade History
+        </button>
+        <button
           id="tab-btn-analytics"
           onClick={() => setActiveTab("analytics")}
           className={`px-3 py-1.5 text-xs font-mono rounded transition-all flex items-center gap-1.5 ${
@@ -758,6 +770,49 @@ export default function App() {
               </div>
             </div>
 
+          </div>
+        )}
+        {/* TRADE HISTORY VIEW */}
+        {activeTab === "history" && (
+          <div id="tab-history-workspace" className="space-y-4">
+            {/* Section header */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-sm">
+              <div>
+                <h2 className="text-sm font-bold uppercase font-mono tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                  <History size={16} className="text-indigo-500" />
+                  Trade History
+                </h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Browse all recorded trades and funding account transactions
+                </p>
+              </div>
+              <div className="flex items-center gap-3 text-xs font-mono text-slate-500">
+                <span className="bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2.5 py-1 rounded">
+                  {trades.length} Trades
+                </span>
+                <span className="bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2.5 py-1 rounded">
+                  {transactions.length} Transactions
+                </span>
+              </div>
+            </div>
+
+            {/* TradeHistoryList — full height, both sub-tabs */}
+            <div
+              id="history-log-container"
+              className="border border-slate-250 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs"
+              style={{ minHeight: "600px" }}
+            >
+              <TradeHistoryList
+                trades={trades}
+                transactions={transactions}
+                onEditTrade={(t) => {
+                  setEditingTrade(t);
+                  setActiveTab("journal");
+                }}
+                onDeleteTrade={handleDeleteTrade}
+                onDeleteTransaction={handleDeleteTransaction}
+              />
+            </div>
           </div>
         )}
 
