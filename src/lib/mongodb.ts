@@ -185,6 +185,23 @@ export const dbService = {
     saveLocalDB(local);
   },
 
+  async deleteUser(email: string): Promise<void> {
+    const emailLower = email.toLowerCase();
+    const db = await getMongoDb();
+    if (db) {
+      await db.collection("users").deleteOne({ email: emailLower });
+      await db.collection("userStates").deleteOne({ email: emailLower });
+      return;
+    }
+
+    const local = getLocalDB();
+    local.users = (local.users || []).filter((u: any) => u.email.toLowerCase() !== emailLower);
+    if (local.userStates && local.userStates[emailLower]) {
+      delete local.userStates[emailLower];
+    }
+    saveLocalDB(local);
+  },
+
   // --- TRADES/TRANSACTIONS STATES ---
   async getUserState(email: string): Promise<{ trades: any[]; transactions: any[] }> {
     const emailLower = email.toLowerCase();

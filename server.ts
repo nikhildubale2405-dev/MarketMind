@@ -187,6 +187,29 @@ app.get("/api/admin/users", authenticateUser, async (req: any, res) => {
   }
 });
 
+app.delete("/api/admin/users/:email", authenticateUser, async (req: any, res) => {
+  try {
+    const currentUser = await dbService.getUserByEmail(req.userEmail);
+    if (!currentUser || currentUser.role !== "admin") {
+      return res.status(403).json({ error: "Access denied. Admin role required." });
+    }
+
+    const targetEmail = req.params.email;
+    if (!targetEmail) {
+      return res.status(400).json({ error: "Target email required." });
+    }
+
+    if (targetEmail.toLowerCase() === req.userEmail.toLowerCase()) {
+      return res.status(400).json({ error: "Cannot delete your own active admin account." });
+    }
+
+    await dbService.deleteUser(targetEmail);
+    res.json({ success: true, message: `User ${targetEmail} deleted successfully.` });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Community Feed and Leaderboard endpoints
 app.get("/api/community/posts", async (req, res) => {
   try {

@@ -12,7 +12,6 @@ import DocumentationView from "./components/DocumentationView";
 import MistakeTrackerView from "./components/MistakeTrackerView";
 import RuleComplianceView from "./components/RuleComplianceView";
 import CoachDashboardView from "./components/CoachDashboardView";
-import AccountabilityGroupsView from "./components/AccountabilityGroupsView";
 import { 
   BookOpen, 
   BarChart2, 
@@ -28,18 +27,17 @@ import {
   User, 
   Trophy,
   Loader2, 
-  Eye,
-  X,
-  Sun,
-  Moon,
-  Brain,
-  CheckSquare,
-  Users,
+  Eye, 
+  X, 
+  Sun, 
+  Moon, 
+  Brain, 
+  CheckSquare, 
   TrendingUp
 } from "lucide-react";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"journal" | "analytics" | "simulator" | "community" | "admin" | "security" | "mistakes" | "compliance" | "coach" | "alliance">("journal");
+  const [activeTab, setActiveTab] = useState<"journal" | "analytics" | "simulator" | "community" | "admin" | "security" | "mistakes" | "compliance" | "coach">("journal");
 
   // --- Auth States ---
   const [userEmail, setUserEmail] = useState<string | null>(() => localStorage.getItem("mm_user_email"));
@@ -639,17 +637,6 @@ export default function App() {
           <Sparkles size={13} className="text-amber-500" /> AI Trading Coach
         </button>
         <button
-          id="tab-btn-alliance"
-          onClick={() => setActiveTab("alliance")}
-          className={`px-3 py-1.5 text-xs font-mono rounded transition-all flex items-center gap-1.5 ${
-            activeTab === "alliance"
-              ? "bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-800 border-b-2 border-b-indigo-655 dark:border-b-indigo-500 text-indigo-660 dark:text-indigo-400 font-bold shadow-xs animate-none"
-              : "text-slate-600 dark:text-slate-355 hover:bg-white/50 dark:hover:bg-slate-800/50"
-          }`}
-        >
-          <Users size={13} className="text-indigo-500" /> Trading Groups
-        </button>
-        <button
           id="tab-btn-community"
           onClick={() => setActiveTab("community")}
           className={`px-3 py-1.5 text-xs font-mono rounded transition-all flex items-center gap-1.5 ${
@@ -812,13 +799,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ALLIANCE ACCOUNTABILITY GROUPS VIEW */}
-        {activeTab === "alliance" && (
-          <div id="tab-alliance-workspace">
-            <AccountabilityGroupsView userTrades={trades} userDisplayName={userDisplayName} />
-          </div>
-        )}
-
         {/* EQUITY CURVE SIMULATOR VIEW */}
         {activeTab === "simulator" && (
           <div id="tab-simulator-workspace">
@@ -839,7 +819,11 @@ export default function App() {
         {/* SECURED ADMIN DIAL VIEW */}
         {activeTab === "admin" && userRole === "admin" && (
           <div id="tab-admin-workspace-outer">
-            <AdminView onFetchWithAuth={handleFetchWithAuth} />
+            <AdminView 
+              onFetchWithAuth={handleFetchWithAuth} 
+              userRole={userRole} 
+              currentUserEmail={userEmail} 
+            />
           </div>
         )}
 
