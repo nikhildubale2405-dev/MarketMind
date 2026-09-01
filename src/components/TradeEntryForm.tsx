@@ -3,6 +3,7 @@ import { Trade, Transaction } from "../types";
 import { PlusCircle, Edit3, ArrowLeftRight, Check, X, ShieldAlert, DollarSign, RefreshCw } from "lucide-react";
 
 interface TradeEntryFormProps {
+  userEmail?: string | null;
   onAddTrade: (trade: Omit<Trade, "id">) => void;
   onUpdateTrade: (trade: Trade) => void;
   onAddTransaction: (tx: Omit<Transaction, "id">) => void;
@@ -13,6 +14,7 @@ interface TradeEntryFormProps {
 const SUPPORTED_SYMBOLS = ["XAU/USD", "USOIL", "XAG/USD", "AUD/USD", "CAD/USD", "AUD/CAD", "BTC/USD"];
 
 export default function TradeEntryForm({
+  userEmail,
   onAddTrade,
   onUpdateTrade,
   onAddTransaction,
@@ -70,6 +72,36 @@ export default function TradeEntryForm({
   const [psychStress, setPsychStress] = useState<number>(4);
   const [psychFear, setPsychFear] = useState<number>(2);
   const [mistakeTags, setMistakeTags] = useState<string[]>([]);
+
+  // --- Playbook Strategy Integration States ---
+  const [playbookStrategies, setPlaybookStrategies] = useState<any[]>([]);
+  const [playbookCompliance, setPlaybookCompliance] = useState<'YES' | 'PARTIALLY' | 'NO'>("YES");
+  const [violatedRule, setViolatedRule] = useState("");
+  const [checkedChecklist, setCheckedChecklist] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!userEmail) return;
+    fetch("/api/my-edge/strategies", {
+      headers: { "Authorization": `Bearer ${userEmail}` }
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && data.strategies) {
+          const activeStrats = data.strategies.filter((s: any) => s.status === "active");
+          setPlaybookStrategies(activeStrats);
+        }
+      })
+      .catch(() => {});
+  }, [userEmail]);
+
+  // Derived Strategy Match (find best matching active strategy based on symbol, setupType, session)
+  const currentSymbol = useCustomSymbol ? customSymbol : symbol;
+  const matchedStrategy = playbookStrategies.find(s => {
+    const symbolMatch = !s.preferredInstruments || s.preferredInstruments.length === 0 || s.preferredInstruments.includes(currentSymbol);
+    const setupMatch = s.name.toLowerCase().includes(setupType.toLowerCase()) || setupType.toLowerCase().includes((s.name || "").toLowerCase());
+    const sessionMatch = !s.preferredSessions || s.preferredSessions.length === 0 || s.preferredSessions.includes(session);
+    return symbolMatch || setupMatch || sessionMatch;
+  });
 
   // --- Transaction Form States ---
   const [txType, setTxType] = useState<'DEPOSIT' | 'WITHDRAWAL'>("DEPOSIT");
@@ -216,7 +248,10 @@ export default function TradeEntryForm({
       psychConfidence,
       psychStress,
       psychFear,
-      mistakeTags
+      mistakeTags,
+      playbookStrategyId: matchedStrategy ? matchedStrategy.id : undefined,
+      playbookCompliance,
+      violatedRule: playbookCompliance !== "YES" ? violatedRule : undefined
     };
 
     if (editingTrade) {
@@ -722,6 +757,83 @@ export default function TradeEntryForm({
                 })}
               </div>
             </div>
+
+            {/* PLAYBOOK PRE-TRADE VALIDATION CARD */}
+            {playbookStrategies.length > 0 && (
+              <div className="border border-indigo-200 dark:border-indigo-900/40 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1">
+                    <ShieldAlert size={13} />
+                    Playbook Pre-Trade Match & Validation
+                  </span>
+                  {matchedStrategy && (
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-emerald-500 text-white">
+                      Match: {matchedStrategy.name}
+                    </span>
+                  )}
+                </div>
+
+                {matchedStrategy ? (
+                  <div className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                      Validate entry checklist for <strong className="text-indigo-600 dark:text-indigo-400">{matchedStrategy.name}</strong>:
+                    </p>
+                    <div className="space-y-1">
+                      {matchedStrategy.entryRules.map((rule: string, idx: number) => (
+                        <label key={idx} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!!checkedChecklist[rule]}
+                            onChange={(e) => setCheckedChecklist(prev => ({ ...prev, [rule]: e.target.checked }))}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                          />
+                          <span className={checkedChecklist[rule] ? "line-through text-slate-400" : ""}>{rule}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Select asset, setup type & session to match against your {playbookStrategies.length} active playbook strategies.
+                  </p>
+                )}
+
+                {/* Post-Trade Compliance Selector */}
+                <div className="border-t border-indigo-200/60 dark:border-indigo-900/40 pt-2 space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400">Did this trade follow your playbook?</label>
+                  <div className="flex gap-2">
+                    {(["YES", "PARTIALLY", "NO"] as const).map(c => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setPlaybookCompliance(c)}
+                        className={`flex-1 py-1 text-[10px] font-bold rounded border transition-all ${
+                          playbookCompliance === c
+                            ? c === "YES"
+                              ? "bg-emerald-600 text-white border-emerald-600"
+                              : c === "PARTIALLY"
+                              ? "bg-amber-500 text-slate-950 border-amber-500"
+                              : "bg-rose-600 text-white border-rose-600"
+                            : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-300"
+                        }`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+
+                  {playbookCompliance !== "YES" && (
+                    <input
+                      type="text"
+                      placeholder="Specify violated playbook rule..."
+                      value={violatedRule}
+                      onChange={(e) => setViolatedRule(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-800 dark:text-slate-100 text-xs rounded p-1.5 mt-1"
+                    />
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Notes area */}
             <div>

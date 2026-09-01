@@ -12,6 +12,8 @@ import DocumentationView from "./components/DocumentationView";
 import MistakeTrackerView from "./components/MistakeTrackerView";
 import RuleComplianceView from "./components/RuleComplianceView";
 import CoachDashboardView from "./components/CoachDashboardView";
+import AccountabilityGroupsView from "./components/AccountabilityGroupsView";
+import MyEdgeView from "./components/MyEdgeView";
 import { 
   BookOpen, 
   BarChart2, 
@@ -33,12 +35,16 @@ import {
   Moon, 
   Brain, 
   CheckSquare, 
+  Brain,
+  CheckSquare,
+  Users,
   TrendingUp,
-  History
+  Target
 } from "lucide-react";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"journal" | "history" | "analytics" | "simulator" | "community" | "admin" | "security" | "mistakes" | "compliance" | "coach">("journal");
+  const [activeTab, setActiveTab] = useState<"journal" | "analytics" | "simulator" | "community" | "admin" | "security" | "mistakes" | "compliance" | "coach" | "alliance" | "my-edge">("journal");
+>>>>>>> c81155e ( New AI Update)
 
   // --- Auth States ---
   const [userEmail, setUserEmail] = useState<string | null>(() => localStorage.getItem("mm_user_email"));
@@ -594,6 +600,17 @@ export default function App() {
           <History size={13} /> Trade History
         </button>
         <button
+          id="tab-btn-my-edge"
+          onClick={() => setActiveTab("my-edge")}
+          className={`px-3 py-1.5 text-xs font-mono rounded transition-all flex items-center gap-1.5 ${
+            activeTab === "my-edge"
+              ? "bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-800 border-b-2 border-b-indigo-655 dark:border-b-indigo-500 text-indigo-660 dark:text-indigo-400 font-bold shadow-xs animate-none"
+              : "text-slate-600 dark:text-slate-355 hover:bg-white/50 dark:hover:bg-slate-800/50"
+          }`}
+        >
+          <Sparkles size={13} className="text-amber-400" /> My Edge
+        </button>
+        <button
           id="tab-btn-analytics"
           onClick={() => setActiveTab("analytics")}
           className={`px-3 py-1.5 text-xs font-mono rounded transition-all flex items-center gap-1.5 ${
@@ -687,18 +704,38 @@ export default function App() {
             {/* Summary metrics row in universal dashboard */}
             <DashboardSummary trades={trades} transactions={transactions} />
 
-            {/* Log Trade Setup Form */}
-            <div 
-              id="manual-entry-scrolling-container" 
-              className="border border-slate-250 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-xs flex flex-col hover:border-slate-350 dark:hover:border-slate-705 transition-all animate-none"
-            >
-              <TradeEntryForm 
-                onAddTrade={handleAddTrade}
-                onUpdateTrade={handleUpdateTrade}
-                onAddTransaction={handleAddTransaction}
-                editingTrade={editingTrade}
-                onCancelEdit={() => setEditingTrade(null)}
-              />
+            {/* Log Trade Setup stacked ABOVE the Trades Log section */}
+            <div id="journal-stacked-collateral-layout" className="flex flex-col gap-4">
+              
+              {/* Top Section: Isolated Manual Trade entry form scrolling */}
+              <div 
+                id="manual-entry-scrolling-container" 
+                className="border border-slate-250 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-xs flex flex-col hover:border-slate-350 dark:hover:border-slate-705 transition-all animate-none"
+              >
+                <TradeEntryForm 
+                  userEmail={userEmail}
+                  onAddTrade={handleAddTrade}
+                  onUpdateTrade={handleUpdateTrade}
+                  onAddTransaction={handleAddTransaction}
+                  editingTrade={editingTrade}
+                  onCancelEdit={() => setEditingTrade(null)}
+                />
+              </div>
+
+              {/* Bottom Section: Trade journal history dates grouped list */}
+              <div 
+                id="trade-log-scrolling-container" 
+                className="border border-slate-250 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-xs h-[585px] flex flex-col hover:border-slate-350 dark:hover:border-slate-705 transition-all animate-none"
+              >
+                <TradeHistoryList 
+                  trades={trades}
+                  transactions={transactions}
+                  onEditTrade={(t) => setEditingTrade(t)}
+                  onDeleteTrade={handleDeleteTrade}
+                  onDeleteTransaction={handleDeleteTransaction}
+                />
+              </div>
+
             </div>
 
             {/* General Export Logs Row */}
@@ -860,6 +897,13 @@ export default function App() {
               userRole={userRole} 
               currentUserEmail={userEmail} 
             />
+          </div>
+        )}
+
+        {/* MY EDGE / STRATEGY LAB VIEW */}
+        {activeTab === "my-edge" && (
+          <div id="tab-my-edge-workspace-outer">
+            <MyEdgeView userEmail={userEmail} trades={trades} />
           </div>
         )}
 

@@ -203,7 +203,7 @@ export const dbService = {
   },
 
   // --- TRADES/TRANSACTIONS STATES ---
-  async getUserState(email: string): Promise<{ trades: any[]; transactions: any[] }> {
+  async getUserState(email: string): Promise<{ trades: any[]; transactions: any[]; strategies?: any[]; lastEdgeAnalysis?: any }> {
     const emailLower = email.toLowerCase();
     const db = await getMongoDb();
     if (db) {
@@ -211,30 +211,94 @@ export const dbService = {
       if (doc) {
         return {
           trades: doc.trades || [],
-          transactions: doc.transactions || []
+          transactions: doc.transactions || [],
+          strategies: doc.strategies || [],
+          lastEdgeAnalysis: doc.lastEdgeAnalysis || null
         };
       }
-      return { trades: [], transactions: [] };
+      return { trades: [], transactions: [], strategies: [], lastEdgeAnalysis: null };
     }
 
     const local = getLocalDB();
-    return local.userStates[emailLower] || { trades: [], transactions: [] };
+    const state = local.userStates[emailLower] || { trades: [], transactions: [] };
+    return {
+      trades: state.trades || [],
+      transactions: state.transactions || [],
+      strategies: state.strategies || [],
+      lastEdgeAnalysis: state.lastEdgeAnalysis || null
+    };
   },
 
-  async setUserState(email: string, trades: any[], transactions: any[]): Promise<void> {
+  async setUserState(email: string, trades: any[], transactions: any[], strategies?: any[], lastEdgeAnalysis?: any): Promise<void> {
     const emailLower = email.toLowerCase();
     const db = await getMongoDb();
     if (db) {
+      const updateDoc: any = { trades, transactions };
+      if (strategies !== undefined) updateDoc.strategies = strategies;
+      if (lastEdgeAnalysis !== undefined) updateDoc.lastEdgeAnalysis = lastEdgeAnalysis;
       await db.collection("userStates").updateOne(
         { email: emailLower },
-        { $set: { trades, transactions } },
+        { $set: updateDoc },
         { upsert: true }
       );
       return;
     }
 
     const local = getLocalDB();
-    local.userStates[emailLower] = { trades, transactions };
+    const existing = local.userStates[emailLower] || { trades: [], transactions: [] };
+    local.userStates[emailLower] = {
+      ...existing,
+      trades,
+      transactions,
+      ...(strategies !== undefined ? { strategies } : {}),
+      ...(lastEdgeAnalysis !== undefined ? { lastEdgeAnalysis } : {})
+    };
+    saveLocalDB(local);
+  },
+
+  async getUserStrategies(email: string): Promise<any[]> {
+    const state = await this.getUserState(email);
+    return state.strategies || [];
+  },
+
+  async saveUserStrategies(email: string, strategies: any[]): Promise<void> {
+    const emailLower = email.toLowerCase();
+    const db = await getMongoDb();
+    if (db) {
+      await db.collection("userStates").updateOne(
+        { email: emailLower },
+        { $set: { strategies } },
+        { upsert: true }
+      );
+      return;
+    }
+    const local = getLocalDB();
+    const existing = local.userStates[emailLower] || { trades: [], transactions: [] };
+    existing.strategies = strategies;
+    local.userStates[emailLower] = existing;
+    saveLocalDB(local);
+  },
+
+  async getUserEdgeAnalysis(email: string): Promise<any | null> {
+    const state = await this.getUserState(email);
+    return state.lastEdgeAnalysis || null;
+  },
+
+  async saveUserEdgeAnalysis(email: string, analysis: any): Promise<void> {
+    const emailLower = email.toLowerCase();
+    const db = await getMongoDb();
+    if (db) {
+      await db.collection("userStates").updateOne(
+        { email: emailLower },
+        { $set: { lastEdgeAnalysis: analysis } },
+        { upsert: true }
+      );
+      return;
+    }
+    const local = getLocalDB();
+    const existing = local.userStates[emailLower] || { trades: [], transactions: [] };
+    existing.lastEdgeAnalysis = analysis;
+    local.userStates[emailLower] = existing;
     saveLocalDB(local);
   },
 

@@ -36,6 +36,129 @@ export interface Trade {
     broken: string[];
   };
   tradeScore?: number; // Overall quality score derived or evaluated (1-100)
+
+  // My Edge & Playbook Integration
+  playbookStrategyId?: string;
+  playbookCompliance?: 'YES' | 'PARTIALLY' | 'NO';
+  violatedRule?: string;
+  tradeFeatures?: TradeFeatures;
+}
+
+export interface TradeFeatures {
+  tradeId: string;
+  instrument?: string;
+  direction?: 'BUY' | 'SELL';
+  session?: string;
+  setupFamily?: string;
+  setupVariant?: string;
+  marketCondition?: string[];
+  liquidityEvent?: string[];
+  structureEvent?: string[];
+  confirmationEvent?: string[];
+  entryTrigger?: string;
+  entryTiming?: string;
+  exitReason?: string;
+  stopPlacement?: string;
+  targetLogic?: string;
+  emotionalState?: string[];
+  cognitiveState?: string[];
+  mistakes?: string[];
+  confidence?: number;
+  descriptionQuality?: number;
+  tags?: string[];
+  aiExtracted: boolean;
+  extractionVersion: string;
+}
+
+export interface StrategyEvidence {
+  tradeCount: number;
+  wins: number;
+  losses: number;
+  winRate: number; // 0..100
+  expectancyR: number; // e.g. +0.91R
+  profitFactor: number;
+  netPnL: number;
+  avgWin: number;
+  avgLoss: number;
+  maxDrawdown?: number;
+  sampleCoverage?: {
+    descriptionCoverage: number;
+    setupCoverage: number;
+    emotionCoverage: number;
+    riskDataCoverage: number;
+  };
+}
+
+export interface StrategyVersion {
+  version: number;
+  createdAt: string;
+  changeSummary: string;
+  conditions: string[];
+  entryRules: string[];
+  riskRules: string[];
+  avoidConditions: string[];
+  evidenceSnapshot: StrategyEvidence;
+}
+
+export interface Strategy {
+  id: string;
+  userId?: string;
+  name: string;
+  description: string;
+  status: 'candidate' | 'active' | 'archived' | 'rejected';
+  confidenceLevel: 'insufficient' | 'exploratory' | 'developing' | 'established';
+  evidence: StrategyEvidence;
+  preferredInstruments: string[];
+  preferredSessions: string[];
+  conditions: string[];
+  entryRules: string[];
+  exitRules?: string[];
+  riskRules: string[];
+  avoidConditions: string[];
+  observedPatterns: string[];
+  inferredPatterns: string[];
+  recommendations: string[];
+  weaknesses: string[];
+  limitations: string[];
+  sourceTradeIds: string[];
+  checklist: string[];
+  version: number;
+  history?: StrategyVersion[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DataSufficiency {
+  tradeCount: number;
+  minimumRequired: number; // default 30
+  level: 'insufficient' | 'exploratory' | 'developing' | 'established';
+  descriptionCoveragePercent: number;
+  setupCoveragePercent: number;
+  emotionCoveragePercent: number;
+  riskDataCoveragePercent: number;
+  missingFields: string[];
+}
+
+export interface EdgeAnalysisResult {
+  analysisId: string;
+  analysisDate: string;
+  dataSufficiency: DataSufficiency;
+  topSetups: {
+    setupName: string;
+    tradeCount: number;
+    winRate: number;
+    expectancyR: number;
+    profitFactor: number;
+    confidenceLevel: 'insufficient' | 'exploratory' | 'developing' | 'established';
+    sampleCoverage: number;
+    evidenceSummary: string;
+  }[];
+  observedPatterns: string[];
+  inferredPatterns: string[];
+  strategyCandidates: Strategy[];
+  dataLimitations: string[];
+  journalQualityScore: number;
+  journalImprovementTips: string[];
 }
 
 export interface Transaction {
@@ -50,6 +173,8 @@ export interface Transaction {
 export interface UserState {
   trades: Trade[];
   transactions: Transaction[];
+  strategies?: Strategy[];
+  lastEdgeAnalysis?: EdgeAnalysisResult;
 }
 
 export interface SessionStats {
@@ -71,3 +196,4 @@ export interface HourlyStats {
   avgProfit: number;
   avgLoss: number;
 }
+
