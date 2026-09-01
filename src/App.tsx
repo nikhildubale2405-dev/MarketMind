@@ -37,7 +37,8 @@ import {
   CheckSquare, 
   Users,
   TrendingUp,
-  Target
+  Target,
+  History
 } from "lucide-react";
 
 export default function App() {
