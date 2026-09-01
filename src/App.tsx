@@ -35,8 +35,6 @@ import {
   Moon, 
   Brain, 
   CheckSquare, 
-  Brain,
-  CheckSquare,
   Users,
   TrendingUp,
   Target
@@ -44,7 +42,6 @@ import {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"journal" | "analytics" | "simulator" | "community" | "admin" | "security" | "mistakes" | "compliance" | "coach" | "alliance" | "my-edge">("journal");
->>>>>>> c81155e ( New AI Update)
 
   // --- Auth States ---
   const [userEmail, setUserEmail] = useState<string | null>(() => localStorage.getItem("mm_user_email"));
