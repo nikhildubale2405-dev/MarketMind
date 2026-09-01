@@ -702,38 +702,19 @@ export default function App() {
             {/* Summary metrics row in universal dashboard */}
             <DashboardSummary trades={trades} transactions={transactions} />
 
-            {/* Log Trade Setup stacked ABOVE the Trades Log section */}
-            <div id="journal-stacked-collateral-layout" className="flex flex-col gap-4">
-              
-              {/* Top Section: Isolated Manual Trade entry form scrolling */}
-              <div 
-                id="manual-entry-scrolling-container" 
-                className="border border-slate-250 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-xs flex flex-col hover:border-slate-350 dark:hover:border-slate-705 transition-all animate-none"
-              >
-                <TradeEntryForm 
-                  userEmail={userEmail}
-                  onAddTrade={handleAddTrade}
-                  onUpdateTrade={handleUpdateTrade}
-                  onAddTransaction={handleAddTransaction}
-                  editingTrade={editingTrade}
-                  onCancelEdit={() => setEditingTrade(null)}
-                />
-              </div>
-
-              {/* Bottom Section: Trade journal history dates grouped list */}
-              <div 
-                id="trade-log-scrolling-container" 
-                className="border border-slate-250 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-xs h-[585px] flex flex-col hover:border-slate-350 dark:hover:border-slate-705 transition-all animate-none"
-              >
-                <TradeHistoryList 
-                  trades={trades}
-                  transactions={transactions}
-                  onEditTrade={(t) => setEditingTrade(t)}
-                  onDeleteTrade={handleDeleteTrade}
-                  onDeleteTransaction={handleDeleteTransaction}
-                />
-              </div>
-
+            {/* Log Trade Setup Form */}
+            <div 
+              id="manual-entry-scrolling-container" 
+              className="border border-slate-250 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-xs flex flex-col hover:border-slate-350 dark:hover:border-slate-705 transition-all animate-none"
+            >
+              <TradeEntryForm 
+                userEmail={userEmail}
+                onAddTrade={handleAddTrade}
+                onUpdateTrade={handleUpdateTrade}
+                onAddTransaction={handleAddTransaction}
+                editingTrade={editingTrade}
+                onCancelEdit={() => setEditingTrade(null)}
+              />
             </div>
 
             {/* General Export Logs Row */}
