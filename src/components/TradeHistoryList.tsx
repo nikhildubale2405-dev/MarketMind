@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Trade, Transaction } from "../types";
-import { ChevronDown, ChevronRight, Edit2, Trash2, Tag, Calendar, Clock, Smile, Star, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { ChevronDown, ChevronRight, Edit2, Trash2, Tag, Calendar, Clock, Smile, Star, ArrowUpRight, ArrowDownLeft, Image as ImageIcon, X, Maximize2, ChevronLeft } from "lucide-react";
 
 interface TradeHistoryListProps {
   trades: Trade[];
@@ -24,6 +24,9 @@ export default function TradeHistoryList({
   // Non-blocking inline confirm states
   const [confirmDeleteTradeId, setConfirmDeleteTradeId] = useState<string | null>(null);
   const [confirmDeleteTxId, setConfirmDeleteTxId] = useState<string | null>(null);
+
+  // Lightbox Modal state for full screen trade screenshots inspection
+  const [activeLightbox, setActiveLightbox] = useState<{ images: string[]; index: number; title: string } | null>(null);
 
   const toggleWeek = (weekKey: string) => {
     setExpandedWeeks(prev => ({
@@ -320,6 +323,33 @@ export default function TradeHistoryList({
                                               "{trade.notes}"
                                             </p>
                                           )}
+
+                                          {/* Trade Chart Screenshots Thumbnails */}
+                                          {trade.images && trade.images.length > 0 && (
+                                            <div className="flex items-center gap-1.5 mt-2">
+                                              {trade.images.map((imgSrc, imgIdx) => (
+                                                <button
+                                                  key={imgIdx}
+                                                  type="button"
+                                                  onClick={() => setActiveLightbox({
+                                                    images: trade.images!,
+                                                    index: imgIdx,
+                                                    title: `${trade.symbol} (${trade.type}) - ${trade.entryDate}`
+                                                  })}
+                                                  className="relative group w-12 h-10 rounded overflow-hidden border border-slate-200 dark:border-slate-800 hover:border-indigo-500 dark:hover:border-indigo-400 bg-slate-100 dark:bg-slate-900 transition-all cursor-pointer shadow-2xs"
+                                                >
+                                                  <img src={imgSrc} alt={`Chart Screenshot ${imgIdx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                                  <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                                                    <Maximize2 size={10} />
+                                                  </div>
+                                                </button>
+                                              ))}
+                                              <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500 flex items-center gap-0.5 ml-0.5">
+                                                <ImageIcon size={9} />
+                                                {trade.images.length} {trade.images.length === 1 ? "img" : "imgs"}
+                                              </span>
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
 
@@ -489,6 +519,69 @@ export default function TradeHistoryList({
           )
         )}
       </div>
+
+      {/* Lightbox Full Screen Modal for Trade Screenshots */}
+      {activeLightbox && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex flex-col items-center justify-center p-4 animate-in fade-in duration-150">
+          {/* Modal Header */}
+          <div className="w-full max-w-4xl flex items-center justify-between text-white mb-3 px-2">
+            <div>
+              <h3 className="text-sm font-bold font-mono text-slate-100 flex items-center gap-2">
+                <ImageIcon size={16} className="text-indigo-400" />
+                {activeLightbox.title}
+              </h3>
+              <span className="text-xs font-mono text-slate-400">
+                Screenshot {activeLightbox.index + 1} of {activeLightbox.images.length}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveLightbox(null)}
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-full transition-colors cursor-pointer"
+              title="Close Lightbox"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Image Container with Prev/Next Navigation */}
+          <div className="relative max-w-4xl w-full max-h-[80vh] flex items-center justify-center bg-slate-900 rounded-xl overflow-hidden border border-slate-800 shadow-2xl p-2">
+            <img
+              src={activeLightbox.images[activeLightbox.index]}
+              alt={`Trade screenshot ${activeLightbox.index + 1}`}
+              className="max-h-[75vh] w-auto max-w-full object-contain rounded"
+            />
+
+            {/* Navigation Arrows for multiple images */}
+            {activeLightbox.images.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveLightbox(prev => prev ? {
+                    ...prev,
+                    index: (prev.index - 1 + prev.images.length) % prev.images.length
+                  } : null)}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 p-2 bg-slate-900/80 hover:bg-slate-800 text-white rounded-full transition-all cursor-pointer shadow-lg border border-slate-700"
+                  title="Previous image"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveLightbox(prev => prev ? {
+                    ...prev,
+                    index: (prev.index + 1) % prev.images.length
+                  } : null)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-slate-900/80 hover:bg-slate-800 text-white rounded-full transition-all cursor-pointer shadow-lg border border-slate-700"
+                  title="Next image"
+                >
+                  <ChevronRight size={20} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

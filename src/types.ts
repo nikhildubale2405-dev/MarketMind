@@ -31,6 +31,7 @@ export interface Trade {
   mistakeTags?: ('FOMO' | 'Revenge trade' | 'Overtrading' | 'Early exit' | 'Late entry' | 'Ignored stop loss' | 'News trade' | 'Emotional trade')[];
   screenshotNotes?: string;
   annotations?: string; // JSON representation of marked-up lines, circles, zones
+  images?: string[]; // Up to 2 base64 image URLs / strings
   ruleComplianceResult?: {
     followed: string[];
     broken: string[];

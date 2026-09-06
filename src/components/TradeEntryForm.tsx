@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Trade, Transaction } from "../types";
-import { PlusCircle, Edit3, ArrowLeftRight, Check, X, ShieldAlert, DollarSign, RefreshCw } from "lucide-react";
+import { PlusCircle, Edit3, ArrowLeftRight, Check, X, ShieldAlert, DollarSign, RefreshCw, Image as ImageIcon, Upload, Trash2 } from "lucide-react";
 
 interface TradeEntryFormProps {
   userEmail?: string | null;
@@ -72,6 +72,70 @@ export default function TradeEntryForm({
   const [psychStress, setPsychStress] = useState<number>(4);
   const [psychFear, setPsychFear] = useState<number>(2);
   const [mistakeTags, setMistakeTags] = useState<string[]>([]);
+  const [images, setImages] = useState<string[]>([]);
+
+  // Client-side image compressor converting files to compressed Base64 Data URLs
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 1200;
+          const MAX_HEIGHT = 1200;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx?.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+          resolve(dataUrl);
+        };
+        img.onerror = (err) => reject(err);
+      };
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const files = Array.from(e.target.files);
+    const remainingSlots = 2 - images.length;
+    if (remainingSlots <= 0) {
+      alert("Maximum 2 screenshots allowed per trade entry.");
+      return;
+    }
+    const filesToProcess = files.slice(0, remainingSlots);
+    try {
+      const compressed = await Promise.all(filesToProcess.map(f => compressImage(f)));
+      setImages(prev => [...prev, ...compressed].slice(0, 2));
+    } catch (err) {
+      console.error("Failed to process uploaded image", err);
+      alert("Failed to process selected image file.");
+    }
+    e.target.value = "";
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  };
 
   // --- Playbook Strategy Integration States ---
   const [playbookStrategies, setPlaybookStrategies] = useState<any[]>([]);
@@ -192,6 +256,7 @@ export default function TradeEntryForm({
       setPsychStress(editingTrade.psychStress || 4);
       setPsychFear(editingTrade.psychFear || 2);
       setMistakeTags(editingTrade.mistakeTags || []);
+      setImages(editingTrade.images || []);
     }
   }, [editingTrade]);
 
@@ -210,6 +275,7 @@ export default function TradeEntryForm({
     setPsychStress(4);
     setPsychFear(2);
     setMistakeTags([]);
+    setImages([]);
     setCustomSymbol("");
     setUseCustomSymbol(false);
     if (editingTrade) {
@@ -243,6 +309,7 @@ export default function TradeEntryForm({
       emotionalState,
       qualityScore,
       notes: notes.trim() || undefined,
+      images: images.length > 0 ? images : undefined,
       setupType,
       session,
       psychConfidence,
@@ -846,6 +913,52 @@ export default function TradeEntryForm({
                 onChange={(e) => setNotes(e.target.value)}
                 className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-800 dark:text-slate-100 text-xs rounded p-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
+            </div>
+
+            {/* Image Upload Area (Up to 2 images) */}
+            <div id="image-upload-section" className="border-t border-slate-200 dark:border-slate-800 pt-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-mono text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                  <ImageIcon size={13} className="text-indigo-500" />
+                  Chart Screenshots <span className="text-[10px] text-slate-400">(Max 2)</span>
+                </label>
+                <span className="text-[10px] font-mono text-slate-400">{images.length}/2 Uploaded</span>
+              </div>
+
+              {/* Uploaded Thumbnails Preview & Add Button */}
+              <div className="grid grid-cols-2 gap-2">
+                {images.map((imgSrc, idx) => (
+                  <div key={idx} className="relative group rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 h-24 flex items-center justify-center">
+                    <img src={imgSrc} alt={`Trade screenshot ${idx + 1}`} className="object-cover w-full h-full" />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveImage(idx)}
+                      className="absolute top-1 right-1 p-1 bg-rose-600/90 hover:bg-rose-600 text-white rounded-full transition-opacity opacity-90 group-hover:opacity-100 cursor-pointer shadow-md"
+                      title="Remove image"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                    <span className="absolute bottom-1 left-1 bg-slate-900/70 text-white font-mono text-[9px] px-1.5 py-0.5 rounded">
+                      Img #{idx + 1}
+                    </span>
+                  </div>
+                ))}
+
+                {images.length < 2 && (
+                  <label className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 bg-slate-50 dark:bg-slate-950 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 rounded-lg h-24 flex flex-col items-center justify-center cursor-pointer transition-all p-2 text-center">
+                    <Upload size={18} className="text-indigo-500 mb-1" />
+                    <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300">Upload Image</span>
+                    <span className="text-[9px] text-slate-400 font-mono mt-0.5">PNG, JPG or WEBP</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple={images.length === 0}
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
             </div>
 
             {/* Action Buttons */}
