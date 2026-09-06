@@ -995,6 +995,158 @@ app.post("/api/my-edge/strategies/:id/version", authenticateUser, async (req: an
   }
 });
 
+// API: AI Review of Trade Example(s) using Gemini
+app.post("/api/trade-examples/analyze", authenticateUser, async (req: any, res) => {
+  try {
+    const { tradeId } = req.body;
+    const userState = await dbService.getUserState(req.userEmail);
+    const trades = userState.trades || [];
+    const targetTrade = trades.find((t: any) => t.id === tradeId);
+
+    if (!targetTrade) {
+      return res.status(404).json({ error: "Trade not found." });
+    }
+
+    const prompt = `Analyze this trade execution and provide a concise, evidence-based review:
+Trade Data:
+- Symbol: ${targetTrade.symbol} (${targetTrade.type})
+- Outcome: ${targetTrade.status} (PnL: $${targetTrade.profitLoss}, R-Ratio: ${targetTrade.riskRewardRatio || "N/A"})
+- Setup Type: ${targetTrade.setupType || "General"}
+- Session: ${targetTrade.session || "Unknown"}
+- Playbook Compliance: ${targetTrade.playbookCompliance || "Not recorded"}
+- Violated Rule: ${targetTrade.violatedRule || "None"}
+- Emotional State: ${targetTrade.emotionalState || "Unknown"}
+- Mistake Tags: ${targetTrade.mistakeTags ? targetTrade.mistakeTags.join(", ") : "None"}
+- Setup Quality: ${targetTrade.qualityScore || "N/A"}/5
+- Notes: ${targetTrade.notes || "None"}
+
+System Rules:
+1. Do not invent unverified chart details.
+2. Distinguish trade outcome from execution quality.
+3. Provide a structured review in JSON format matching this schema:
+{
+  "executionQuality": "GOOD" | "ACCEPTABLE" | "POOR",
+  "classification": "GOOD_WIN" | "BAD_WIN" | "GOOD_LOSS" | "BAD_LOSS" | "BREAKEVEN",
+  "observations": ["string"],
+  "strengths": ["string"],
+  "mistakes": ["string"],
+  "lesson": "string",
+  "playbookRelevance": "string"
+}`;
+
+    let reviewData = {
+      executionQuality: targetTrade.playbookCompliance === "YES" ? "GOOD" : targetTrade.playbookCompliance === "NO" ? "POOR" : "ACCEPTABLE",
+      classification: targetTrade.status === "WIN" ? (targetTrade.playbookCompliance === "NO" ? "BAD_WIN" : "GOOD_WIN") : (targetTrade.playbookCompliance === "NO" ? "BAD_LOSS" : "GOOD_LOSS"),
+      observations: [`Executed ${targetTrade.symbol} ${targetTrade.type} during ${targetTrade.session || 'trade'} session.`],
+      strengths: targetTrade.playbookCompliance === "YES" ? ["Strict playbook compliance"] : [],
+      mistakes: targetTrade.mistakeTags || [],
+      lesson: targetTrade.status === "WIN" 
+        ? "Maintain disciplined execution following defined entry triggers."
+        : "Valid risk parameters maintained. Review entry confirmation rules before execution.",
+      playbookRelevance: targetTrade.playbookCompliance === "YES" ? "High Playbook Alignment" : "Needs Playbook Discipline Alignment"
+    };
+
+    try {
+      const aiResponse = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: "You are MarketMind's trade-review assistant. Analyze trader's trade records based strictly on provided data. Never invent chart facts. Return strictly valid JSON."
+        }
+      });
+
+      if (aiResponse && aiResponse.text) {
+        const cleanText = aiResponse.text.replace(/```json/gi, "").replace(/```/g, "").trim();
+        const parsed = JSON.parse(cleanText);
+        reviewData = { ...reviewData, ...parsed };
+      }
+    } catch (aiErr) {
+      console.warn("Gemini AI trade review failed, returning deterministic fallback review:", aiErr);
+    }
+
+    res.json(reviewData);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: AI Winner vs Loser Comparison Analysis
+app.post("/api/trade-examples/compare", authenticateUser, async (req: any, res) => {
+  try {
+    const { winnerId, loserId } = req.body;
+    const userState = await dbService.getUserState(req.userEmail);
+    const trades = userState.trades || [];
+
+    const winner = trades.find((t: any) => t.id === winnerId);
+    const loser = trades.find((t: any) => t.id === loserId);
+
+    if (!winner || !loser) {
+      return res.status(404).json({ error: "Winner or loser trade record not found." });
+    }
+
+    const prompt = `Compare these two trades (Winner vs Loser) and identify key execution differences:
+
+WINNING TRADE:
+- ${winner.symbol} ${winner.type} | PnL: +$${winner.profitLoss} (+${winner.riskRewardRatio || 0}R)
+- Setup: ${winner.setupType || "N/A"} | Session: ${winner.session || "N/A"}
+- Compliance: ${winner.playbookCompliance || "N/A"}
+- Emotion: ${winner.emotionalState || "N/A"} | Mistakes: ${winner.mistakeTags ? winner.mistakeTags.join(", ") : "None"}
+
+LOSING TRADE:
+- ${loser.symbol} ${loser.type} | PnL: -$${Math.abs(loser.profitLoss)} (${loser.riskRewardRatio ? -1 : 0}R)
+- Setup: ${loser.setupType || "N/A"} | Session: ${loser.session || "N/A"}
+- Compliance: ${loser.playbookCompliance || "N/A"}
+- Emotion: ${loser.emotionalState || "N/A"} | Mistakes: ${loser.mistakeTags ? loser.mistakeTags.join(", ") : "None"}
+
+Provide structured JSON comparison:
+{
+  "keySeparator": "string summary of main difference",
+  "winningFactors": ["string"],
+  "losingFactors": ["string"],
+  "actionableRecommendation": "string"
+}`;
+
+    let comparisonData = {
+      keySeparator: winner.playbookCompliance !== loser.playbookCompliance 
+        ? `The winning trade strictly followed the Playbook plan (${winner.playbookCompliance}), whereas the losing trade violated defined rules (${loser.playbookCompliance}).`
+        : "Difference in session timing, market volatility, or emotional discipline at entry.",
+      winningFactors: [
+        `Playbook Compliance: ${winner.playbookCompliance || "YES"}`,
+        `Emotional State: ${winner.emotionalState || "Calm"}`,
+        `Discipline Rating: ${winner.qualityScore || 4}/5 ⭐`
+      ],
+      losingFactors: [
+        `Playbook Compliance: ${loser.playbookCompliance || "NO"}`,
+        `Mistakes: ${loser.mistakeTags && loser.mistakeTags.length > 0 ? loser.mistakeTags.join(", ") : "Execution error"}`,
+        `Emotional State: ${loser.emotionalState || "Under pressure"}`
+      ],
+      actionableRecommendation: "Ensure all entry criteria and confirmation triggers are satisfied prior to order execution."
+    };
+
+    try {
+      const aiResponse = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: "You are MarketMind's trade-review assistant. Compare winning vs losing trade data objectively. Never invent unrecorded chart facts. Return valid JSON."
+        }
+      });
+
+      if (aiResponse && aiResponse.text) {
+        const cleanText = aiResponse.text.replace(/```json/gi, "").replace(/```/g, "").trim();
+        const parsed = JSON.parse(cleanText);
+        comparisonData = { ...comparisonData, ...parsed };
+      }
+    } catch (aiErr) {
+      console.warn("Gemini AI comparison failed, returning deterministic comparison:", aiErr);
+    }
+
+    res.json(comparisonData);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 // Serve static files in production, use Vite middleware in development
 async function startServer() {

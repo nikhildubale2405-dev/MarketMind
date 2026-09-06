@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Trade, Strategy, EdgeAnalysisResult, DataSufficiency } from "../types";
+import TradeExamplesView from "./TradeExamplesView";
+import { selectPlaybookExamples } from "../lib/tradeExamplesUtils";
 import { 
   Brain, 
   Sparkles, 
@@ -19,7 +21,10 @@ import {
   History, 
   Info, 
   Award,
-  Zap
+  Zap,
+  Camera,
+  Compass,
+  FileCode
 } from "lucide-react";
 
 interface MyEdgeViewProps {
@@ -28,7 +33,7 @@ interface MyEdgeViewProps {
 }
 
 export default function MyEdgeView({ userEmail, trades }: MyEdgeViewProps) {
-  const [activeTab, setActiveTab] = useState<"overview" | "playbook">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "setups" | "strategies" | "playbook" | "examples">("overview");
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<EdgeAnalysisResult | null>(null);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -254,34 +259,70 @@ export default function MyEdgeView({ userEmail, trades }: MyEdgeViewProps) {
       )}
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
         <button
           onClick={() => setActiveTab("overview")}
-          className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors flex items-center gap-2 ${
+          className={`px-3.5 py-2 rounded-lg font-semibold text-xs sm:text-sm transition-colors flex items-center gap-1.5 cursor-pointer ${
             activeTab === "overview"
               ? "bg-indigo-600 text-white shadow-sm"
               : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
           }`}
         >
           <Target className="w-4 h-4" />
-          <span>Edge Discovery & Top Setups</span>
+          <span>Overview</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("setups")}
+          className={`px-3.5 py-2 rounded-lg font-semibold text-xs sm:text-sm transition-colors flex items-center gap-1.5 cursor-pointer ${
+            activeTab === "setups"
+              ? "bg-indigo-600 text-white shadow-sm"
+              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+          }`}
+        >
+          <Compass className="w-4 h-4 text-emerald-500" />
+          <span>Top Setups</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("strategies")}
+          className={`px-3.5 py-2 rounded-lg font-semibold text-xs sm:text-sm transition-colors flex items-center gap-1.5 cursor-pointer ${
+            activeTab === "strategies"
+              ? "bg-indigo-600 text-white shadow-sm"
+              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+          }`}
+        >
+          <FileCode className="w-4 h-4 text-amber-500" />
+          <span>Strategies</span>
         </button>
 
         <button
           onClick={() => setActiveTab("playbook")}
-          className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors flex items-center gap-2 ${
+          className={`px-3.5 py-2 rounded-lg font-semibold text-xs sm:text-sm transition-colors flex items-center gap-1.5 cursor-pointer ${
             activeTab === "playbook"
               ? "bg-indigo-600 text-white shadow-sm"
               : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
           }`}
         >
           <BookOpen className="w-4 h-4" />
-          <span>Personal Playbook ({activeStrategies.length})</span>
+          <span>Playbook ({activeStrategies.length})</span>
           {candidateStrategies.length > 0 && (
             <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-slate-950">
               {candidateStrategies.length} New
             </span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab("examples")}
+          className={`px-3.5 py-2 rounded-lg font-semibold text-xs sm:text-sm transition-colors flex items-center gap-1.5 cursor-pointer ${
+            activeTab === "examples"
+              ? "bg-indigo-600 text-white shadow-sm"
+              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+          }`}
+        >
+          <Camera className="w-4 h-4 text-indigo-400" />
+          <span>Trade Examples</span>
         </button>
       </div>
 
@@ -637,6 +678,54 @@ export default function MyEdgeView({ userEmail, trades }: MyEdgeViewProps) {
                           </div>
                         ))}
                       </div>
+
+                      {/* Strategy Visual Examples (Winning vs Losing) */}
+                      {(() => {
+                        const { idealExamples, mistakeExamples } = selectPlaybookExamples(strat, trades);
+                        return (
+                          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+                            <div>
+                              <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block mb-1">
+                                🟢 Ideal Winning Examples ({idealExamples.length})
+                              </span>
+                              {idealExamples.length > 0 ? (
+                                <div className="flex gap-2">
+                                  {idealExamples.map((ex, i) => (
+                                    <div key={i} className="relative w-16 h-12 rounded-lg overflow-hidden border border-emerald-500/30 bg-slate-950">
+                                      <img src={ex.images![0]} alt="Winning Example" className="w-full h-full object-cover" />
+                                      <span className="absolute bottom-0 right-0 bg-emerald-600 text-white font-mono text-[8px] px-1 font-bold">
+                                        +${ex.profitLoss}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 italic">No winning screenshots attached for this setup yet.</span>
+                              )}
+                            </div>
+
+                            <div>
+                              <span className="text-[10px] font-mono font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider block mb-1">
+                                🔴 Common Error / Losing Examples ({mistakeExamples.length})
+                              </span>
+                              {mistakeExamples.length > 0 ? (
+                                <div className="flex gap-2">
+                                  {mistakeExamples.map((ex, i) => (
+                                    <div key={i} className="relative w-16 h-12 rounded-lg overflow-hidden border border-rose-500/30 bg-slate-950">
+                                      <img src={ex.images![0]} alt="Losing Example" className="w-full h-full object-cover" />
+                                      <span className="absolute bottom-0 right-0 bg-rose-600 text-white font-mono text-[8px] px-1 font-bold">
+                                        -${Math.abs(ex.profitLoss)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 italic">No losing screenshots attached for this setup yet.</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="flex items-center gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
@@ -676,6 +765,80 @@ export default function MyEdgeView({ userEmail, trades }: MyEdgeViewProps) {
             )}
           </div>
         </div>
+      )}
+
+      {/* TOP SETUPS TAB */}
+      {activeTab === "setups" && (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Compass className="w-5 h-5 text-emerald-500" />
+              Discovered Top Setup Patterns
+            </h2>
+            {analysisResult && analysisResult.topSetups.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {analysisResult.topSetups.map((st, idx) => (
+                  <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="font-extrabold text-sm text-slate-900 dark:text-white">{st.setupName}</span>
+                      <span className="text-xs font-mono font-bold text-emerald-500">{st.winRate}% Win Rate</span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-mono">{st.tradeCount} trades • Expectancy {st.expectancyR}R • PF {st.profitFactor}</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 italic">"{st.evidenceSummary}"</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 italic">Run "Analyze My Edge" to discover your statistically highest performing setup patterns.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* STRATEGIES CANDIDATES TAB */}
+      {activeTab === "strategies" && (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <FileCode className="w-5 h-5 text-amber-500" />
+              All Strategy Candidates & Playbook Repository
+            </h2>
+            {strategies.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {strategies.map((st) => (
+                  <div key={st.id} className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-sm text-slate-900 dark:text-white">{st.name}</span>
+                      <span className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded ${
+                        st.status === "active" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"
+                      }`}>
+                        {st.status.toUpperCase()}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-300">{st.description}</p>
+                    <button
+                      onClick={() => setSelectedStrategy(st)}
+                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg cursor-pointer"
+                    >
+                      View Strategy Details
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 italic">No strategies generated yet.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TRADE EXAMPLES DASHBOARD TAB */}
+      {activeTab === "examples" && (
+        <TradeExamplesView
+          userEmail={userEmail}
+          trades={trades}
+          strategies={strategies}
+        />
       )}
 
       {/* STRATEGY DETAIL & REVIEW MODAL */}

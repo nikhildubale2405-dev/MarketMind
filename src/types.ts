@@ -198,3 +198,45 @@ export interface HourlyStats {
   avgLoss: number;
 }
 
+export type ExecutionQuality = 'GOOD' | 'ACCEPTABLE' | 'POOR';
+export type TradeClassification = 'GOOD_WIN' | 'BAD_WIN' | 'GOOD_LOSS' | 'BAD_LOSS' | 'BREAKEVEN';
+
+export interface TradeExampleData {
+  trade: Trade;
+  executionScore: number; // 0-100 score
+  quality: ExecutionQuality;
+  classification: TradeClassification;
+  reasons: {
+    strengths: string[];
+    weaknesses: string[];
+    ruleCompliance: string[];
+    mistakes: string[];
+  };
+  lesson?: string;
+}
+
+export interface ScreenshotCoverageStats {
+  totalTrades: number;
+  tradesWithScreenshots: number;
+  overallCoveragePercent: number;
+  winningTradesCount: number;
+  winningWithScreenshots: number;
+  winningCoveragePercent: number;
+  losingTradesCount: number;
+  losingWithScreenshots: number;
+  losingCoveragePercent: number;
+}
+
+export interface TradeComparisonResult {
+  winner: TradeExampleData;
+  loser: TradeExampleData;
+  keyDifferences: {
+    category: string;
+    winnerValue: string;
+    loserValue: string;
+    isKeySeparator: boolean;
+  }[];
+  summaryLesson: string;
+}
+
+
