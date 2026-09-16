@@ -41,7 +41,8 @@ import {
   History,
   Mail,
   CheckCircle,
-  RefreshCw
+  RefreshCw,
+  EyeOff
 } from "lucide-react";
 
 export default function App() {
@@ -63,6 +64,7 @@ export default function App() {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (resendCooldown > 0) {
@@ -625,14 +627,25 @@ export default function App() {
 
                 <div>
                   <label className="block text-[10px] font-mono text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-1">Your Password</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="••••••••"
-                    value={inputPassword}
-                    onChange={(e) => setInputPassword(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      placeholder="••••••••"
+                      value={inputPassword}
+                      onChange={(e) => setInputPassword(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 pr-11 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(prev => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
+                      tabIndex={-1}
+                      title={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
 
                 <button
