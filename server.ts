@@ -109,7 +109,11 @@ app.post("/api/auth/register", async (req, res) => {
     res.json({
       email: newUser.email,
       requiresVerification: true,
-      message: "Registration saved. Please check your email for the 6-digit verification code."
+      emailSent: emailResult.success,
+      emailWarning: emailResult.success ? undefined : emailResult.message,
+      message: emailResult.success
+        ? "Registration saved. Please check your email for the 6-digit verification code."
+        : `Registration saved, but email could not be delivered: ${emailResult.message}. (Check server console for OTP)`
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -165,8 +169,17 @@ app.post("/api/auth/resend-otp", async (req, res) => {
     await dbService.updateUserOtp(emailLower, newOtp, expiresAt);
     const emailResult = await sendVerificationOtpEmail(emailLower, newOtp, user.displayName);
 
+    if (!emailResult.success) {
+      return res.status(200).json({
+        success: false,
+        emailSent: false,
+        message: `Could not send email: ${emailResult.message}. (Check server console for OTP)`
+      });
+    }
+
     res.json({
       success: true,
+      emailSent: true,
       message: "A new 6-digit verification code has been sent to your email."
     });
   } catch (error: any) {
@@ -210,7 +223,9 @@ app.post("/api/auth/login", async (req, res) => {
       const emailResult = await sendVerificationOtpEmail(emailLower, newOtp, user.displayName);
 
       return res.status(403).json({
-        error: "Your email address is not verified yet. A verification code has been sent to your email.",
+        error: emailResult.success
+          ? "Your email address is not verified yet. A verification code has been sent to your email."
+          : `Email not verified. Failed to send email: ${emailResult.message}. (Check server console for OTP)`,
         requiresVerification: true,
         email: user.email
       });

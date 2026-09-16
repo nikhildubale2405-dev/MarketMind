@@ -1,0 +1,13 @@
+{
+  "users": [
+    {
+      "email": "admin_email",
+      "passwordHash": "ADMIN_PASSWORD",
+      "displayName": "System Admin",
+      "role": "admin",
+      "isVerified": true
+    }
+  ],
+  "userStates": {},
+  "posts": []
+}

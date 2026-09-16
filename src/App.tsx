@@ -300,6 +300,9 @@ export default function App() {
       } else {
         if (data.requiresVerification) {
           setAuthMode("verify-otp");
+          if (data.emailWarning) {
+            setAuthError(data.emailWarning);
+          }
           setOtpSuccessMessage(data.message || "A 6-digit verification code has been sent to your email.");
           if (data.devOtp) setDevOtpCode(data.devOtp);
         } else {
@@ -382,8 +385,8 @@ export default function App() {
       });
 
       const data = await response.json();
-      if (!response.ok) {
-        setAuthError(data.error || "Failed to resend verification code.");
+      if (!response.ok || data.success === false) {
+        setAuthError(data.error || data.message || "Failed to resend verification code.");
       } else {
         setOtpSuccessMessage(data.message || "A new verification code has been sent!");
         if (data.devOtp) setDevOtpCode(data.devOtp);

@@ -16,7 +16,7 @@ const DB_FILE = path.join(process.cwd(), "db.json");
 
 export async function getMongoDb(): Promise<Db | null> {
   if (dbInstance) return dbInstance;
-  if (!uri) {
+  if (!uri || uri === "MONGODB_URI" || (!uri.startsWith("mongodb://") && !uri.startsWith("mongodb+srv://"))) {
     return null;
   }
   try {
