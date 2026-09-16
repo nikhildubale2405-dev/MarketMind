@@ -549,11 +549,7 @@ export default function App() {
             </div>
           )}
 
-          {devOtpCode && authMode === "verify-otp" && (
-            <div className="bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-indigo-700 dark:text-indigo-300 p-3 rounded-xl text-xs text-center font-mono">
-              <span className="font-bold">💡 DEV MODE OTP:</span> Code is <span className="bg-indigo-200 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100 px-2 py-0.5 rounded font-black tracking-widest">{devOtpCode}</span>
-            </div>
-          )}
+
 
           {authMode === "verify-otp" ? (
             <form onSubmit={handleVerifyOtpSubmit} className="space-y-4">
@@ -623,7 +619,7 @@ export default function App() {
                     placeholder="nick@marketminds.com"
                     value={inputEmail}
                     onChange={(e) => setInputEmail(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
                   />
                 </div>
 
@@ -635,7 +631,7 @@ export default function App() {
                     placeholder="••••••••"
                     value={inputPassword}
                     onChange={(e) => setInputPassword(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
                   />
                 </div>
 

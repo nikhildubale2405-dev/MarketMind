@@ -109,8 +109,7 @@ app.post("/api/auth/register", async (req, res) => {
     res.json({
       email: newUser.email,
       requiresVerification: true,
-      message: "Registration initial state saved. Please enter the 6-digit verification code sent to your email.",
-      devOtp: emailResult.devOtp
+      message: "Registration saved. Please check your email for the 6-digit verification code."
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -168,8 +167,7 @@ app.post("/api/auth/resend-otp", async (req, res) => {
 
     res.json({
       success: true,
-      message: "A new 6-digit verification code has been sent to your email.",
-      devOtp: emailResult.devOtp
+      message: "A new 6-digit verification code has been sent to your email."
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -214,8 +212,7 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(403).json({
         error: "Your email address is not verified yet. A verification code has been sent to your email.",
         requiresVerification: true,
-        email: user.email,
-        devOtp: emailResult.devOtp
+        email: user.email
       });
     }
 

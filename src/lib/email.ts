@@ -5,14 +5,15 @@ dotenv.config();
 export interface SendEmailResult {
   success: boolean;
   message: string;
-  isDevFallback?: boolean;
-  devOtp?: string;
 }
 
 /**
  * Sends a 6-digit verification OTP code to a user's email.
- * If SMTP variables (SMTP_HOST, SMTP_USER, etc.) are set in .env, sends via Nodemailer.
- * Otherwise, outputs a formatted box in the server console for local testing.
+ *
+ * If SMTP credentials are configured in .env (SMTP_HOST, SMTP_USER, SMTP_PASS),
+ * the email is sent using Nodemailer.
+ *
+ * Otherwise, the OTP is printed in the server console for local development.
  */
 export async function sendVerificationOtpEmail(
   toEmail: string,
@@ -23,81 +24,85 @@ export async function sendVerificationOtpEmail(
   const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
-  const smtpFrom = process.env.SMTP_FROM || `"MarketMind Auth" <no-reply@marketmind.com>`;
+  const smtpFrom = process.env.SMTP_FROM || `"MarketMind" <no-reply@marketmind.com>`;
 
   const recipientName = displayName || toEmail.split("@")[0];
 
-  // If SMTP credentials are configured, attempt sending real email via Nodemailer
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+      <div style="text-align: center; margin-bottom: 28px;">
+        <div style="display: inline-block; background: linear-gradient(135deg, #4f46e5, #7c3aed); padding: 12px 20px; border-radius: 12px; margin-bottom: 12px;">
+          <span style="color: white; font-size: 20px; font-weight: 800; letter-spacing: -0.5px;">MarketMind</span>
+        </div>
+        <p style="color: #64748b; font-size: 13px; margin: 4px 0 0;">Email Verification</p>
+      </div>
+
+      <p style="color: #334155; font-size: 15px; margin-bottom: 8px;">Hello <strong>${recipientName}</strong>,</p>
+      <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">
+        Thanks for signing up for MarketMind! Please use the verification code below to confirm your email address and activate your account.
+      </p>
+
+      <div style="background: #f8fafc; border: 2px dashed #c7d2fe; padding: 24px 16px; border-radius: 14px; text-align: center; margin: 0 0 24px;">
+        <p style="margin: 0 0 6px; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; font-weight: 600;">Your Verification Code</p>
+        <span style="font-size: 40px; font-weight: 900; color: #1e1b4b; font-family: 'Courier New', monospace; letter-spacing: 10px;">${otpCode}</span>
+        <p style="margin: 10px 0 0; color: #94a3b8; font-size: 12px;">Expires in <strong>10 minutes</strong></p>
+      </div>
+
+      <p style="color: #94a3b8; font-size: 12px; text-align: center; margin-bottom: 20px;">
+        If you didn't create a MarketMind account, you can safely ignore this email.
+      </p>
+
+      <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 0 0 16px;" />
+      <p style="color: #cbd5e1; font-size: 11px; text-align: center; margin: 0;">
+        &copy; ${new Date().getFullYear()} MarketMind Trading Journal
+      </p>
+    </div>
+  `;
+
+  // Attempt to send via SMTP if credentials are configured
   if (smtpHost && smtpUser && smtpPass) {
     try {
-      // Dynamic import of nodemailer so app runs even if module isn't installed in dev
-      const nodemailer = await import("nodemailer").catch(() => null);
-      if (nodemailer) {
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: smtpPort,
-          secure: smtpPort === 465,
-          auth: {
-            user: smtpUser,
-            pass: smtpPass
-          }
-        });
+      // nodemailer must be installed: npm install nodemailer
+      const nodemailer = await import("nodemailer");
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      });
 
-        const htmlContent = `
-          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; rounded: 16px; background-color: #ffffff;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <h1 style="color: #4f46e5; margin: 0; font-size: 24px;">MarketMind</h1>
-              <p style="color: #64748b; font-size: 13px; margin-top: 4px;">Email Verification Code</p>
-            </div>
-            
-            <p style="color: #334155; font-size: 15px;">Hello <strong>${recipientName}</strong>,</p>
-            <p style="color: #475569; font-size: 14px; line-height: 1.5;">
-              Thank you for signing up for MarketMind! Please enter the 6-digit verification code below to verify your account registration.
-            </p>
-            
-            <div style="background-color: #f1f5f9; padding: 18px; border-radius: 12px; text-align: center; margin: 24px 0; letter-spacing: 6px;">
-              <span style="font-size: 32px; font-weight: bold; color: #1e1b4b; font-family: monospace;">${otpCode}</span>
-            </div>
+      await transporter.sendMail({
+        from: smtpFrom,
+        to: toEmail,
+        subject: `${otpCode} — Your MarketMind verification code`,
+        html: htmlContent,
+      });
 
-            <p style="color: #64748b; font-size: 12px; text-align: center;">
-              This code will expire in <strong>10 minutes</strong>. If you did not request this, please ignore this email.
-            </p>
-            
-            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-            <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
-              &copy; ${new Date().getFullYear()} MarketMind Trading Journal. All rights reserved.
-            </p>
-          </div>
-        `;
-
-        await transporter.sendMail({
-          from: smtpFrom,
-          to: toEmail,
-          subject: `${otpCode} is your MarketMind verification code`,
-          html: htmlContent
-        });
-
-        console.log(`[EMAIL SERVICE] Verification OTP email successfully sent to ${toEmail}`);
-        return { success: true, message: "Verification email sent successfully." };
-      }
+      console.log(`[EMAIL] Verification OTP sent successfully to ${toEmail}`);
+      return { success: true, message: "Verification email sent successfully." };
     } catch (err: any) {
-      console.error("[EMAIL SERVICE ERROR] Failed to send via Nodemailer:", err.message);
-      // Fallback to console print below
+      console.error(`[EMAIL ERROR] Failed to send email to ${toEmail}:`, err.message);
+      // Fall through to console fallback
     }
   }
 
-  // Local Development Fallback: Print OTP code to server console
-  console.log("\n============================================================");
-  console.log("  [MARKETMIND EMAIL SERVICE - LOCAL DEV OTP]");
-  console.log(`  To: ${toEmail} (${recipientName})`);
-  console.log(`  VERIFICATION CODE: [ ${otpCode} ]`);
-  console.log("  Expires in: 10 minutes");
-  console.log("============================================================\n");
+  // Local development fallback — print OTP clearly in server console
+  console.log(`
+╔══════════════════════════════════════════════════╗
+║        MARKETMIND — EMAIL VERIFICATION OTP       ║
+╠══════════════════════════════════════════════════╣
+║  To:      ${toEmail.padEnd(38)}  ║
+║  Name:    ${recipientName.padEnd(38)}  ║
+║  CODE:    [ ${otpCode} ]  (expires in 10 min)        ║
+╚══════════════════════════════════════════════════╝
+  `);
 
-  return {
-    success: true,
-    message: "Verification OTP generated. Check server logs or SMTP inbox.",
-    isDevFallback: !smtpHost,
-    devOtp: otpCode
-  };
+  if (!smtpHost) {
+    console.warn("[EMAIL] SMTP not configured. Add SMTP_HOST, SMTP_USER, SMTP_PASS to .env to send real emails.");
+  }
+
+  return { success: true, message: "Verification code generated. Check server console for the OTP." };
 }
