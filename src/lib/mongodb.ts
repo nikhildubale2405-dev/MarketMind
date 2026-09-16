@@ -126,7 +126,13 @@ export const dbService = {
 
   async addUser(user: any): Promise<void> {
     const emailLower = user.email.toLowerCase();
-    const cleanUser = { ...user, email: emailLower };
+    const cleanUser = {
+      isVerified: user.isVerified !== undefined ? user.isVerified : false,
+      verificationOtp: user.verificationOtp || null,
+      otpExpiresAt: user.otpExpiresAt || null,
+      ...user,
+      email: emailLower
+    };
     const db = await getMongoDb();
     if (db) {
       await db.collection("users").updateOne(
@@ -161,13 +167,86 @@ export const dbService = {
     saveLocalDB(local);
   },
 
+  async updateUserOtp(email: string, otp: string, expiresAt: number): Promise<void> {
+    const emailLower = email.toLowerCase();
+    const db = await getMongoDb();
+    if (db) {
+      await db.collection("users").updateOne(
+        { email: emailLower },
+        { $set: { verificationOtp: otp, otpExpiresAt: expiresAt } }
+      );
+      return;
+    }
+
+    const local = getLocalDB();
+    const users = local.users || [];
+    const idx = users.findIndex((u: any) => u.email.toLowerCase() === emailLower);
+    if (idx !== -1) {
+      users[idx].verificationOtp = otp;
+      users[idx].otpExpiresAt = expiresAt;
+      local.users = users;
+      saveLocalDB(local);
+    }
+  },
+
+  async verifyUserOtp(email: string, otp: string): Promise<{ success: boolean; error?: string; user?: any }> {
+    const emailLower = email.toLowerCase();
+    const user = await this.getUserByEmail(emailLower);
+
+    if (!user) {
+      return { success: false, error: "User account not found." };
+    }
+
+    if (user.isVerified) {
+      return { success: true, user };
+    }
+
+    if (!user.verificationOtp || user.verificationOtp !== otp) {
+      return { success: false, error: "Invalid verification code." };
+    }
+
+    if (user.otpExpiresAt && Date.now() > user.otpExpiresAt) {
+      return { success: false, error: "Verification code has expired. Please request a new code." };
+    }
+
+    // Verification successful
+    const db = await getMongoDb();
+    if (db) {
+      await db.collection("users").updateOne(
+        { email: emailLower },
+        {
+          $set: { isVerified: true },
+          $unset: { verificationOtp: "", otpExpiresAt: "" }
+        }
+      );
+    } else {
+      const local = getLocalDB();
+      const users = local.users || [];
+      const idx = users.findIndex((u: any) => u.email.toLowerCase() === emailLower);
+      if (idx !== -1) {
+        users[idx].isVerified = true;
+        delete users[idx].verificationOtp;
+        delete users[idx].otpExpiresAt;
+        local.users = users;
+        saveLocalDB(local);
+      }
+    }
+
+    user.isVerified = true;
+    delete user.verificationOtp;
+    delete user.otpExpiresAt;
+
+    return { success: true, user };
+  },
+
   async updateAdminUser(adminEmail: string, adminUser: any): Promise<void> {
     const emailLower = adminEmail.toLowerCase();
+    const cleanAdmin = { ...adminUser, email: emailLower, isVerified: true };
     const db = await getMongoDb();
     if (db) {
       await db.collection("users").updateOne(
         { role: "admin" },
-        { $set: { ...adminUser, email: emailLower } },
+        { $set: cleanAdmin },
         { upsert: true }
       );
       return;
@@ -177,9 +256,9 @@ export const dbService = {
     const users = local.users || [];
     const existingIdx = users.findIndex((u: any) => u.role === "admin");
     if (existingIdx !== -1) {
-      users[existingIdx] = { ...adminUser, email: emailLower };
+      users[existingIdx] = cleanAdmin;
     } else {
-      users.push({ ...adminUser, email: emailLower });
+      users.push(cleanAdmin);
     }
     local.users = users;
     saveLocalDB(local);

@@ -38,7 +38,10 @@ import {
   Users,
   TrendingUp,
   Target,
-  History
+  History,
+  Mail,
+  CheckCircle,
+  RefreshCw
 } from "lucide-react";
 
 export default function App() {
@@ -48,14 +51,25 @@ export default function App() {
   const [userEmail, setUserEmail] = useState<string | null>(() => localStorage.getItem("mm_user_email"));
   const [userDisplayName, setUserDisplayName] = useState<string | null>(() => localStorage.getItem("mm_user_name"));
   const [userRole, setUserRole] = useState<string | null>(() => localStorage.getItem("mm_user_role"));
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authMode, setAuthMode] = useState<"login" | "register" | "verify-otp">("login");
   
   // Auth Form Input States
   const [inputEmail, setInputEmail] = useState("");
   const [inputPassword, setInputPassword] = useState("");
   const [inputDisplayName, setInputDisplayName] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpSuccessMessage, setOtpSuccessMessage] = useState("");
+  const [devOtpCode, setDevOtpCode] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown(prev => prev - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
 
   // --- Core States ---
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -249,6 +263,7 @@ export default function App() {
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
+    setOtpSuccessMessage("");
     setAuthLoading(true);
 
     if (!inputEmail || !inputPassword) {
@@ -272,25 +287,109 @@ export default function App() {
 
       const data = await response.json();
       if (!response.ok) {
-        setAuthError(data.error || "Authentication flow failed.");
+        if (data.requiresVerification) {
+          setAuthMode("verify-otp");
+          if (data.email) setInputEmail(data.email);
+          setAuthError(data.error || "Please verify your email address.");
+          if (data.devOtp) setDevOtpCode(data.devOtp);
+        } else {
+          setAuthError(data.error || "Authentication flow failed.");
+        }
       } else {
-        // Sign-in successful
+        if (data.requiresVerification) {
+          setAuthMode("verify-otp");
+          setOtpSuccessMessage(data.message || "A 6-digit verification code has been sent to your email.");
+          if (data.devOtp) setDevOtpCode(data.devOtp);
+        } else {
+          // Sign-in successful
+          localStorage.setItem("mm_user_email", data.email);
+          localStorage.setItem("mm_user_name", data.displayName);
+          localStorage.setItem("mm_user_role", data.role);
+          
+          setUserEmail(data.email);
+          setUserDisplayName(data.displayName);
+          setUserRole(data.role);
+
+          alert(`Welcome back to MarketMinds, ${data.displayName}!`);
+          
+          // If they had mock/offline data, we can sync or just reload state
+          fetchStatePayload(data.email);
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      setAuthError("Could not reach auth server.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleVerifyOtpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    setOtpSuccessMessage("");
+    setAuthLoading(true);
+
+    if (!inputEmail || !otpCode) {
+      setAuthError("Email and 6-digit verification code are required.");
+      setAuthLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inputEmail, otp: otpCode })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setAuthError(data.error || "Verification failed. Please check your OTP code.");
+      } else {
         localStorage.setItem("mm_user_email", data.email);
         localStorage.setItem("mm_user_name", data.displayName);
         localStorage.setItem("mm_user_role", data.role);
-        
+
         setUserEmail(data.email);
         setUserDisplayName(data.displayName);
         setUserRole(data.role);
 
-        alert(`Welcome back to MarketMinds, ${data.displayName}!`);
-        
-        // If they had mock/offline data, we can sync or just reload state
+        alert(`Email verified successfully! Welcome to MarketMinds, ${data.displayName}!`);
         fetchStatePayload(data.email);
       }
     } catch (err: any) {
       console.error(err);
-      setAuthError("Could not reachauth server. Working in offline sandbox demo mode.");
+      setAuthError("Could not reach verification server.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0) return;
+    setAuthError("");
+    setOtpSuccessMessage("");
+    setAuthLoading(true);
+
+    try {
+      const response = await fetch("/api/auth/resend-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inputEmail })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setAuthError(data.error || "Failed to resend verification code.");
+      } else {
+        setOtpSuccessMessage(data.message || "A new verification code has been sent!");
+        if (data.devOtp) setDevOtpCode(data.devOtp);
+        setResendCooldown(30);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setAuthError("Could not reach server to resend verification code.");
     } finally {
       setAuthLoading(false);
     }
@@ -421,17 +520,19 @@ export default function App() {
           </p>
         </div>
 
-        {/* Login/Register Card */}
+        {/* Login/Register/Verify Card */}
         <div className="w-full max-w-md bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/80 backdrop-blur-md rounded-2xl shadow-xl p-6 sm:p-8 space-y-6 transition-all duration-300">
           
           <div className="text-center">
             <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-              {authMode === "login" ? "Welcome Back" : "Create Account"}
+              {authMode === "login" ? "Welcome Back" : authMode === "register" ? "Create Account" : "Verify Your Email"}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               {authMode === "login" 
                 ? "Enter your credentials to access your trading dashboard" 
-                : "Create an account to track your trades"}
+                : authMode === "register"
+                ? "Create an account to track your trades"
+                : `Enter the 6-digit code sent to ${inputEmail || "your email"}`}
             </p>
           </div>
 
@@ -441,72 +542,132 @@ export default function App() {
             </div>
           )}
 
-          <form onSubmit={handleAuthSubmit} className="space-y-4">
-            {authMode === "register" && (
+          {otpSuccessMessage && (
+            <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400 p-3 rounded-xl text-xs text-center font-medium flex items-center justify-center gap-2">
+              <CheckCircle size={14} />
+              <span>{otpSuccessMessage}</span>
+            </div>
+          )}
+
+          {devOtpCode && authMode === "verify-otp" && (
+            <div className="bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-indigo-700 dark:text-indigo-300 p-3 rounded-xl text-xs text-center font-mono">
+              <span className="font-bold">💡 DEV MODE OTP:</span> Code is <span className="bg-indigo-200 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100 px-2 py-0.5 rounded font-black tracking-widest">{devOtpCode}</span>
+            </div>
+          )}
+
+          {authMode === "verify-otp" ? (
+            <form onSubmit={handleVerifyOtpSubmit} className="space-y-4">
               <div>
-                <label className="block text-[10px] font-mono text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-1">Your Name</label>
+                <label className="block text-[10px] font-mono text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-1 text-center">6-Digit Verification Code</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. GoldTraderNick"
-                  value={inputDisplayName}
-                  onChange={(e) => setInputDisplayName(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                  maxLength={6}
+                  placeholder="123456"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-center text-2xl font-mono tracking-[0.4em] font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
                 />
               </div>
-            )}
 
-            <div>
-              <label className="block text-[10px] font-mono text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-1">Your Email Address</label>
-              <input
-                type="email"
-                required
-                placeholder="nick@marketminds.com"
-                value={inputEmail}
-                onChange={(e) => setInputEmail(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
-              />
-            </div>
+              <button
+                type="submit"
+                disabled={authLoading || otpCode.length !== 6}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-sm flex justify-center items-center gap-2 transition-all cursor-pointer shadow-lg shadow-indigo-600/20 active:scale-[0.98]"
+              >
+                {authLoading ? <Loader2 size={16} className="animate-spin" /> : <Mail size={14} />}
+                Verify & Activate Account
+              </button>
 
-            <div>
-              <label className="block text-[10px] font-mono text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-1">Your Password</label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={inputPassword}
-                onChange={(e) => setInputPassword(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full bg-indigo-605 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-sm flex justify-center items-center gap-2 transition-all cursor-pointer shadow-lg shadow-indigo-600/20 active:scale-[0.98]"
-            >
-              {authLoading ? <Loader2 size={16} className="animate-spin" /> : <Lock size={14} />}
-              {authMode === "login" ? "Login to Profile" : "Register Profile"}
-            </button>
-          </form>
-
-          <div className="text-center pt-2 text-xs">
-            {authMode === "login" ? (
-              <p className="text-slate-500 dark:text-slate-400">
-                New to MarketMinds?{" "}
-                <button onClick={() => { setAuthMode("register"); setAuthError(""); }} className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">
-                  Create a Profile
+              <div className="flex items-center justify-between pt-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode("login"); setAuthError(""); setOtpSuccessMessage(""); setDevOtpCode(null); }}
+                  className="text-slate-500 dark:text-slate-400 hover:underline"
+                >
+                  &larr; Back to Login
                 </button>
-              </p>
-            ) : (
-              <p className="text-slate-500 dark:text-slate-400">
-                Already have a profile?{" "}
-                <button onClick={() => { setAuthMode("login"); setAuthError(""); }} className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">
-                  Login Securely
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={resendCooldown > 0 || authLoading}
+                  className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline disabled:opacity-50 flex items-center gap-1"
+                >
+                  <RefreshCw size={12} className={authLoading ? "animate-spin" : ""} />
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend OTP Code"}
                 </button>
-              </p>
-            )}
-          </div>
+              </div>
+            </form>
+          ) : (
+            <>
+              <form onSubmit={handleAuthSubmit} className="space-y-4">
+                {authMode === "register" && (
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-1">Your Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. GoldTraderNick"
+                      value={inputDisplayName}
+                      onChange={(e) => setInputDisplayName(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[10px] font-mono text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-1">Your Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="nick@marketminds.com"
+                    value={inputEmail}
+                    onChange={(e) => setInputEmail(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-mono text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-1">Your Password</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={inputPassword}
+                    onChange={(e) => setInputPassword(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={authLoading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-sm flex justify-center items-center gap-2 transition-all cursor-pointer shadow-lg shadow-indigo-600/20 active:scale-[0.98]"
+                >
+                  {authLoading ? <Loader2 size={16} className="animate-spin" /> : <Lock size={14} />}
+                  {authMode === "login" ? "Login to Profile" : "Register Profile"}
+                </button>
+              </form>
+
+              <div className="text-center pt-2 text-xs">
+                {authMode === "login" ? (
+                  <p className="text-slate-500 dark:text-slate-400">
+                    New to MarketMinds?{" "}
+                    <button onClick={() => { setAuthMode("register"); setAuthError(""); setOtpSuccessMessage(""); }} className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">
+                      Create a Profile
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-slate-500 dark:text-slate-400">
+                    Already have a profile?{" "}
+                    <button onClick={() => { setAuthMode("login"); setAuthError(""); setOtpSuccessMessage(""); }} className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">
+                      Login Securely
+                    </button>
+                  </p>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer info removed for simplicity */}

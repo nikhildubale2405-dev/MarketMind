@@ -5,6 +5,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { dbService } from "./src/lib/mongodb";
+import { sendVerificationOtpEmail } from "./src/lib/email";
 
 dotenv.config();
 
@@ -77,19 +78,98 @@ app.post("/api/auth/register", async (req, res) => {
     const isEnvAdmin = emailLower === (process.env.ADMIN_EMAIL || "nickdubale05@gmail.com").toLowerCase();
     const role = isEnvAdmin ? "admin" : "user";
 
+    // Generate 6-digit verification OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes lifetime
+
     const newUser = {
       email: emailLower,
       passwordHash: password,
       displayName,
-      role
+      role,
+      isVerified: isEnvAdmin ? true : false,
+      verificationOtp: isEnvAdmin ? null : otpCode,
+      otpExpiresAt: isEnvAdmin ? null : otpExpiresAt
     };
 
     await dbService.addUser(newUser);
 
+    if (isEnvAdmin) {
+      return res.json({
+        email: newUser.email,
+        displayName: newUser.displayName,
+        role: newUser.role,
+        isVerified: true
+      });
+    }
+
+    // Send Email / Dev log
+    const emailResult = await sendVerificationOtpEmail(emailLower, otpCode, displayName);
+
     res.json({
       email: newUser.email,
-      displayName: newUser.displayName,
-      role: newUser.role
+      requiresVerification: true,
+      message: "Registration initial state saved. Please enter the 6-digit verification code sent to your email.",
+      devOtp: emailResult.devOtp
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/auth/verify-otp", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ error: "Email and verification OTP are required." });
+    }
+
+    const emailLower = email.toLowerCase();
+    const result = await dbService.verifyUserOtp(emailLower, otp.toString().trim());
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    const user = result.user;
+    res.json({
+      email: user.email,
+      displayName: user.displayName,
+      role: user.role,
+      isVerified: true
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/auth/resend-otp", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "Email is required." });
+    }
+
+    const emailLower = email.toLowerCase();
+    const user = await dbService.getUserByEmail(emailLower);
+    if (!user) {
+      return res.status(404).json({ error: "User profile not found." });
+    }
+
+    if (user.isVerified) {
+      return res.status(400).json({ error: "Your email address is already verified." });
+    }
+
+    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+
+    await dbService.updateUserOtp(emailLower, newOtp, expiresAt);
+    const emailResult = await sendVerificationOtpEmail(emailLower, newOtp, user.displayName);
+
+    res.json({
+      success: true,
+      message: "A new 6-digit verification code has been sent to your email.",
+      devOtp: emailResult.devOtp
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -114,7 +194,8 @@ app.post("/api/auth/login", async (req, res) => {
       return res.json({
         email: adminEmail.toLowerCase(),
         displayName: adminDisplayName,
-        role: "admin"
+        role: "admin",
+        isVerified: true
       });
     }
 
@@ -123,10 +204,26 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(400).json({ error: "Invalid credentials." });
     }
 
+    if (user.isVerified === false) {
+      // Re-send OTP if needed
+      const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = Date.now() + 10 * 60 * 1000;
+      await dbService.updateUserOtp(emailLower, newOtp, expiresAt);
+      const emailResult = await sendVerificationOtpEmail(emailLower, newOtp, user.displayName);
+
+      return res.status(403).json({
+        error: "Your email address is not verified yet. A verification code has been sent to your email.",
+        requiresVerification: true,
+        email: user.email,
+        devOtp: emailResult.devOtp
+      });
+    }
+
     res.json({
       email: user.email,
       displayName: user.displayName,
-      role: user.role
+      role: user.role,
+      isVerified: true
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
