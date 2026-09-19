@@ -126,7 +126,7 @@ export default function App() {
   const fetchStatePayload = async (email: string) => {
     let fetchedTrades: Trade[] = [];
     let fetchedTransactions: Transaction[] = [];
-    let hasLoaded = false;
+    let hasLoadedFromServer = false;
 
     try {
       const res = await fetch("/api/state", {
@@ -136,26 +136,64 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.trades && data.transactions) {
+        if (Array.isArray(data.trades) && Array.isArray(data.transactions)) {
           fetchedTrades = data.trades;
           fetchedTransactions = data.transactions;
-          hasLoaded = true;
+          hasLoadedFromServer = true;
         }
+      } else {
+        console.warn(`Server state request returned status ${res.status}`);
       }
     } catch (err) {
       console.error("Could not fetch state backend logs. Falling back to local cache.", err);
     }
 
-    if (!hasLoaded) {
-      const localTrades = localStorage.getItem(`mm_trades_${email}`);
-      const localTx = localStorage.getItem(`mm_tx_${email}`);
-      if (localTrades || localTx) {
-        fetchedTrades = localTrades ? JSON.parse(localTrades) : [];
-        fetchedTransactions = localTx ? JSON.parse(localTx) : [];
+    // Check local storage for this user
+    const localTradesStr = localStorage.getItem(`mm_trades_${email}`);
+    const localTxStr = localStorage.getItem(`mm_tx_${email}`);
+    const localTrades: Trade[] = localTradesStr ? JSON.parse(localTradesStr) : [];
+    const localTx: Transaction[] = localTxStr ? JSON.parse(localTxStr) : [];
+
+    // If server returned 0 trades, but local storage has trades, retain local trades and resync to server
+    if (hasLoadedFromServer && fetchedTrades.length === 0 && localTrades.length > 0) {
+      console.log("Server had 0 trades but local storage has trades. Resyncing local trades to server.");
+      fetchedTrades = localTrades;
+      if (fetchedTransactions.length === 0) fetchedTransactions = localTx;
+      syncStatePayload(fetchedTrades, fetchedTransactions);
+    } else if (!hasLoadedFromServer) {
+      if (localTrades.length > 0 || localTx.length > 0) {
+        fetchedTrades = localTrades;
+        fetchedTransactions = localTx;
       } else {
         const sample = getSampleState();
         fetchedTrades = sample.trades;
         fetchedTransactions = sample.transactions;
+      }
+    }
+
+    // Merge any offline sandbox trades that were entered before login
+    const offlineTradesRaw = localStorage.getItem("mm_offline_trades");
+    const offlineTxRaw = localStorage.getItem("mm_offline_tx");
+    if (offlineTradesRaw || offlineTxRaw) {
+      try {
+        const offlineTrades: Trade[] = offlineTradesRaw ? JSON.parse(offlineTradesRaw) : [];
+        const offlineTx: Transaction[] = offlineTxRaw ? JSON.parse(offlineTxRaw) : [];
+        if (offlineTrades.length > 0 || offlineTx.length > 0) {
+          console.log(`Merging ${offlineTrades.length} offline trades into user account ${email}`);
+          const existingIds = new Set(fetchedTrades.map(t => t.id));
+          const newUniqueOffline = offlineTrades.filter(t => !existingIds.has(t.id));
+          fetchedTrades = [...newUniqueOffline, ...fetchedTrades];
+
+          const existingTxIds = new Set(fetchedTransactions.map(t => t.id));
+          const newUniqueTx = offlineTx.filter(t => !existingTxIds.has(t.id));
+          fetchedTransactions = [...newUniqueTx, ...fetchedTransactions];
+
+          localStorage.removeItem("mm_offline_trades");
+          localStorage.removeItem("mm_offline_tx");
+          syncStatePayload(fetchedTrades, fetchedTransactions);
+        }
+      } catch (mergeErr) {
+        console.warn("Failed to merge offline trades:", mergeErr);
       }
     }
 
@@ -169,22 +207,12 @@ export default function App() {
     setTrades(finalTrades);
     setTransactions(finalTx);
 
-    // Persist empty slate back to cache if mock IDs were found
-    if (fetchedTrades.length !== finalTrades.length || fetchedTransactions.length !== finalTx.length) {
+    // Persist to local cache safely
+    try {
       localStorage.setItem(`mm_trades_${email}`, JSON.stringify(finalTrades));
       localStorage.setItem(`mm_tx_${email}`, JSON.stringify(finalTx));
-      try {
-        await fetch("/api/state", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${email}`
-          },
-          body: JSON.stringify({ trades: finalTrades, transactions: finalTx })
-        });
-      } catch (err) {
-        console.error("Failed to sync cleared trades to server", err);
-      }
+    } catch (e) {
+      console.warn("Could not cache updated trades to localStorage:", e);
     }
   };
 
@@ -218,8 +246,12 @@ export default function App() {
       setTransactions(finalTx);
 
       if (fetchedTrades.length !== finalTrades.length || fetchedTransactions.length !== finalTx.length) {
-        localStorage.setItem("mm_offline_trades", JSON.stringify(finalTrades));
-        localStorage.setItem("mm_offline_tx", JSON.stringify(finalTx));
+        try {
+          localStorage.setItem("mm_offline_trades", JSON.stringify(finalTrades));
+          localStorage.setItem("mm_offline_tx", JSON.stringify(finalTx));
+        } catch (e) {
+          console.warn("Could not cache offline trades:", e);
+        }
       }
     }
   }, [userEmail]);
@@ -227,12 +259,17 @@ export default function App() {
   // Sync state to backend or local cache when updated
   const syncStatePayload = async (updatedTrades: Trade[], updatedTransactions: Transaction[]) => {
     if (userEmail) {
-      // Local Storage scoped update
-      localStorage.setItem(`mm_trades_${userEmail}`, JSON.stringify(updatedTrades));
-      localStorage.setItem(`mm_tx_${userEmail}`, JSON.stringify(updatedTransactions));
-
+      // 1. Safe Local Storage scoped update (catch QuotaExceededError without crashing)
       try {
-        await fetch("/api/state", {
+        localStorage.setItem(`mm_trades_${userEmail}`, JSON.stringify(updatedTrades));
+        localStorage.setItem(`mm_tx_${userEmail}`, JSON.stringify(updatedTransactions));
+      } catch (storageErr) {
+        console.warn("Could not cache trades to localStorage (likely quota limit):", storageErr);
+      }
+
+      // 2. Network sync to MongoDB / Server
+      try {
+        const res = await fetch("/api/state", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -240,13 +277,23 @@ export default function App() {
           },
           body: JSON.stringify({ trades: updatedTrades, transactions: updatedTransactions })
         });
-      } catch (err) {
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error || `Server responded with status ${res.status}`;
+          console.error("Database save failed:", errMsg);
+          alert(`Warning: Trade changes could not be saved to database (${errMsg}).`);
+        }
+      } catch (err: any) {
         console.error("Failed to sync client trades state to server memory.", err);
       }
     } else {
       // Offline Sandbox Cache Scoped update
-      localStorage.setItem("mm_offline_trades", JSON.stringify(updatedTrades));
-      localStorage.setItem("mm_offline_tx", JSON.stringify(updatedTransactions));
+      try {
+        localStorage.setItem("mm_offline_trades", JSON.stringify(updatedTrades));
+        localStorage.setItem("mm_offline_tx", JSON.stringify(updatedTransactions));
+      } catch (storageErr) {
+        console.warn("Could not cache offline trades to localStorage:", storageErr);
+      }
     }
   };
 

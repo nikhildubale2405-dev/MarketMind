@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Trade, Transaction } from "../types";
 import { ChevronDown, ChevronRight, Edit2, Trash2, Tag, Calendar, Clock, Smile, Star, ArrowUpRight, ArrowDownLeft, Image as ImageIcon, X, Maximize2, ChevronLeft } from "lucide-react";
 
@@ -123,6 +123,45 @@ export default function TradeHistoryList({
 
   const groupedWeeks = groupTradesByWeek();
 
+  // Auto-expand the most recent week and all its dates by default so new trades are immediately visible
+  useEffect(() => {
+    if (groupedWeeks.length > 0) {
+      const latestWeek = groupedWeeks[0];
+      setExpandedWeeks(prev => ({
+        ...prev,
+        [latestWeek.weekKey]: prev[latestWeek.weekKey] !== undefined ? prev[latestWeek.weekKey] : true
+      }));
+      setExpandedDates(prev => {
+        const updated = { ...prev };
+        latestWeek.days.forEach(d => {
+          if (updated[d.date] === undefined) {
+            updated[d.date] = true;
+          }
+        });
+        return updated;
+      });
+    }
+  }, [trades.length]);
+
+  const handleToggleExpandAll = () => {
+    const isAllExpanded = groupedWeeks.length > 0 && groupedWeeks.every(w => !!expandedWeeks[w.weekKey]);
+    if (isAllExpanded) {
+      setExpandedWeeks({});
+      setExpandedDates({});
+    } else {
+      const nextWeeks: Record<string, boolean> = {};
+      const nextDates: Record<string, boolean> = {};
+      groupedWeeks.forEach(w => {
+        nextWeeks[w.weekKey] = true;
+        w.days.forEach(d => {
+          nextDates[d.date] = true;
+        });
+      });
+      setExpandedWeeks(nextWeeks);
+      setExpandedDates(nextDates);
+    }
+  };
+
   return (
     <div id="trade-history-organizer" className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-lg overflow-hidden shadow-sm flex flex-col h-full text-slate-850 dark:text-slate-105">
       {/* Tab Navigation header */}
@@ -155,8 +194,18 @@ export default function TradeHistoryList({
             Deposits & Withdrawals ({transactions.length})
           </button>
         </div>
-        <div id="log-status-badge" className="text-[9px] font-mono text-slate-400 dark:text-slate-500">
-          IST +5:30 Synchronized
+        <div id="log-status-badge" className="flex items-center gap-2 text-[9px] font-mono text-slate-400 dark:text-slate-500">
+          {activeTab === "trades" && groupedWeeks.length > 0 && (
+            <button
+              type="button"
+              id="btn-toggle-expand-all"
+              onClick={handleToggleExpandAll}
+              className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-semibold cursor-pointer mr-1"
+            >
+              {groupedWeeks.every(w => !!expandedWeeks[w.weekKey]) ? "Collapse All" : "Expand All"}
+            </button>
+          )}
+          <span>IST +5:30 Synchronized</span>
         </div>
       </div>
 

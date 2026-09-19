@@ -12,8 +12,8 @@ dotenv.config();
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000", 10);
 
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ limit: "10mb", extended: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Ensure Admin account is registered on bootstrap
 async function bootstrapAdmin() {
@@ -260,10 +260,12 @@ app.post("/api/state", authenticateUser, async (req: any, res) => {
     }
 
     await dbService.setUserState(req.userEmail, trades, transactions);
+    console.log(`Successfully persisted ${trades.length} trades and ${transactions.length} transactions for ${req.userEmail}`);
 
     res.json({ success: true, count: trades.length });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error(`Failed to persist user state for ${req.userEmail}:`, error);
+    res.status(500).json({ error: error.message || "Failed to persist state to database." });
   }
 });
 

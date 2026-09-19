@@ -16,14 +16,19 @@ const DB_FILE = path.join(process.cwd(), "db.json");
 
 export async function getMongoDb(): Promise<Db | null> {
   if (dbInstance) return dbInstance;
-  if (!uri || uri === "MONGODB_URI" || (!uri.startsWith("mongodb://") && !uri.startsWith("mongodb+srv://"))) {
+
+  const rawUri = process.env.MONGODB_URI;
+  const sanitizedUri = rawUri ? rawUri.trim().replace(/^["']|["']$/g, "").trim() : "";
+  const activeDbName = (process.env.MONGODB_DB || "TradingLog").trim().replace(/^["']|["']$/g, "").trim();
+
+  if (!sanitizedUri || sanitizedUri === "MONGODB_URI" || (!sanitizedUri.startsWith("mongodb://") && !sanitizedUri.startsWith("mongodb+srv://"))) {
     return null;
   }
   try {
-    client = new MongoClient(uri);
+    client = new MongoClient(sanitizedUri);
     await client.connect();
-    dbInstance = client.db(dbName);
-    console.log(`Connected successfully to MongoDB Database: "${dbName}"`);
+    dbInstance = client.db(activeDbName);
+    console.log(`Connected successfully to MongoDB Database: "${activeDbName}"`);
     
     // Auto-migrate local data on first successful connection
     try {
@@ -315,11 +320,16 @@ export const dbService = {
       const updateDoc: any = { trades, transactions };
       if (strategies !== undefined) updateDoc.strategies = strategies;
       if (lastEdgeAnalysis !== undefined) updateDoc.lastEdgeAnalysis = lastEdgeAnalysis;
-      await db.collection("userStates").updateOne(
-        { email: emailLower },
-        { $set: updateDoc },
-        { upsert: true }
-      );
+      try {
+        await db.collection("userStates").updateOne(
+          { email: emailLower },
+          { $set: updateDoc },
+          { upsert: true }
+        );
+      } catch (err: any) {
+        console.error(`MongoDB update failed for user ${emailLower}:`, err);
+        throw new Error(`MongoDB persistence error: ${err.message || "Failed to save state to MongoDB."}`);
+      }
       return;
     }
 
