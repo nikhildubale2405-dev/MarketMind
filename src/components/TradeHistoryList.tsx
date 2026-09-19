@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Trade, Transaction } from "../types";
 import { ChevronDown, ChevronRight, Edit2, Trash2, Tag, Calendar, Clock, Smile, Star, ArrowUpRight, ArrowDownLeft, Image as ImageIcon, X, Maximize2, ChevronLeft } from "lucide-react";
 
@@ -123,25 +123,7 @@ export default function TradeHistoryList({
 
   const groupedWeeks = groupTradesByWeek();
 
-  // Auto-expand the most recent week and all its dates by default so new trades are immediately visible
-  useEffect(() => {
-    if (groupedWeeks.length > 0) {
-      const latestWeek = groupedWeeks[0];
-      setExpandedWeeks(prev => ({
-        ...prev,
-        [latestWeek.weekKey]: prev[latestWeek.weekKey] !== undefined ? prev[latestWeek.weekKey] : true
-      }));
-      setExpandedDates(prev => {
-        const updated = { ...prev };
-        latestWeek.days.forEach(d => {
-          if (updated[d.date] === undefined) {
-            updated[d.date] = true;
-          }
-        });
-        return updated;
-      });
-    }
-  }, [trades.length]);
+
 
   const handleToggleExpandAll = () => {
     const isAllExpanded = groupedWeeks.length > 0 && groupedWeeks.every(w => !!expandedWeeks[w.weekKey]);
