@@ -33,6 +33,7 @@ interface MyEdgeViewProps {
 }
 
 export default function MyEdgeView({ userEmail, trades }: MyEdgeViewProps) {
+  const getAuthToken = () => localStorage.getItem("mm_user_token") || "";
   const [activeTab, setActiveTab] = useState<"overview" | "setups" | "strategies" | "playbook" | "examples">("overview");
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<EdgeAnalysisResult | null>(null);
@@ -55,7 +56,7 @@ export default function MyEdgeView({ userEmail, trades }: MyEdgeViewProps) {
     try {
       const res = await fetch("/api/my-edge/strategies", {
         headers: {
-          "Authorization": `Bearer ${userEmail}`
+          "Authorization": `Bearer ${getAuthToken()}`
         }
       });
       if (res.ok) {
@@ -79,7 +80,7 @@ export default function MyEdgeView({ userEmail, trades }: MyEdgeViewProps) {
       const res = await fetch("/api/my-edge/analyze", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${userEmail}`,
+          "Authorization": `Bearer ${getAuthToken()}`,
           "Content-Type": "application/json"
         }
       });
@@ -102,7 +103,7 @@ export default function MyEdgeView({ userEmail, trades }: MyEdgeViewProps) {
     try {
       const res = await fetch(`/api/my-edge/strategies/${stratId}/accept`, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${userEmail}` }
+        headers: { "Authorization": `Bearer ${getAuthToken()}` }
       });
       if (res.ok) {
         setSuccessMsg("Strategy candidate accepted into your active Playbook!");
@@ -118,7 +119,7 @@ export default function MyEdgeView({ userEmail, trades }: MyEdgeViewProps) {
     try {
       const res = await fetch(`/api/my-edge/strategies/${stratId}/reject`, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${userEmail}` }
+        headers: { "Authorization": `Bearer ${getAuthToken()}` }
       });
       if (res.ok) {
         setSuccessMsg("Strategy candidate archived.");
@@ -140,7 +141,7 @@ export default function MyEdgeView({ userEmail, trades }: MyEdgeViewProps) {
       const res = await fetch(`/api/my-edge/strategies/${editingVersionStrat.id}/version`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${userEmail}`,
+          "Authorization": `Bearer ${getAuthToken()}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({

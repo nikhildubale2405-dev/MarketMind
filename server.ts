@@ -6,6 +6,7 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { dbService } from "./src/lib/mongodb";
 import { sendVerificationOtpEmail } from "./src/lib/email";
+import { hashPassword, verifyPassword, signJwt, verifyJwt } from "./src/lib/authSecurity";
 
 dotenv.config();
 
@@ -22,9 +23,10 @@ async function bootstrapAdmin() {
     const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || "System Admin";
 
+    const hashedAdminPassword = await hashPassword(adminPassword);
     const adminUser = {
       email: adminEmail.toLowerCase(),
-      passwordHash: adminPassword,
+      passwordHash: hashedAdminPassword,
       displayName: adminDisplayName,
       role: "admin"
     };
@@ -36,7 +38,6 @@ async function bootstrapAdmin() {
   }
 }
 
-
 // Initialize the Gemini SDK
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -47,18 +48,25 @@ const ai = new GoogleGenAI({
   },
 });
 
-// Middleware to extract user email from simple Authorization header Bearer token
+// Middleware to verify cryptographically signed authentication token (RFC 7519 JWT)
 function authenticateUser(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Unauthorized access. No signature found." });
+    return res.status(401).json({ error: "Unauthorized access. No authentication token provided." });
   }
-  const email = authHeader.replace("Bearer ", "").trim().toLowerCase();
-  if (!email) {
-    return res.status(401).json({ error: "Invalid user credential." });
+  const token = authHeader.replace("Bearer ", "").trim();
+  if (!token) {
+    return res.status(401).json({ error: "Invalid or missing authentication token." });
   }
-  req.userEmail = email;
-  next();
+
+  try {
+    const payload = verifyJwt(token);
+    req.userEmail = payload.email.toLowerCase();
+    req.userRole = payload.role || "user";
+    return next();
+  } catch (err: any) {
+    return res.status(401).json({ error: err.message || "Unauthorized access. Invalid or expired token." });
+  }
 }
 
 // Auth Endpoints
@@ -82,9 +90,10 @@ app.post("/api/auth/register", async (req, res) => {
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes lifetime
 
+    const hashedPassword = await hashPassword(password);
     const newUser = {
       email: emailLower,
-      passwordHash: password,
+      passwordHash: hashedPassword,
       displayName,
       role,
       isVerified: isEnvAdmin ? true : false,
@@ -95,11 +104,13 @@ app.post("/api/auth/register", async (req, res) => {
     await dbService.addUser(newUser);
 
     if (isEnvAdmin) {
+      const token = signJwt({ email: newUser.email, role: newUser.role, displayName: newUser.displayName });
       return res.json({
         email: newUser.email,
         displayName: newUser.displayName,
         role: newUser.role,
-        isVerified: true
+        isVerified: true,
+        token
       });
     }
 
@@ -135,11 +146,13 @@ app.post("/api/auth/verify-otp", async (req, res) => {
     }
 
     const user = result.user;
-    res.json({
+    const token = signJwt({ email: user.email, role: user.role, displayName: user.displayName });
+    return res.json({
       email: user.email,
       displayName: user.displayName,
       role: user.role,
-      isVerified: true
+      isVerified: true,
+      token
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -200,20 +213,37 @@ app.post("/api/auth/login", async (req, res) => {
     const adminEmail = process.env.ADMIN_EMAIL || "nickdubale05@gmail.com";
     const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
 
-    if (emailLower === adminEmail.toLowerCase() && password === adminPassword) {
-      const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || "System Admin";
-      return res.json({
-        email: adminEmail.toLowerCase(),
-        displayName: adminDisplayName,
-        role: "admin",
-        isVerified: true
-      });
+    let dbUser = await dbService.getUserByEmail(emailLower);
+    if (!dbUser && emailLower === adminEmail.toLowerCase()) {
+      const isEnvAdminMatch = await verifyPassword(password, await hashPassword(adminPassword));
+      if (isEnvAdminMatch.isValid) {
+        const adminUser = {
+          email: adminEmail.toLowerCase(),
+          passwordHash: await hashPassword(adminPassword),
+          displayName: process.env.ADMIN_DISPLAY_NAME || "System Admin",
+          role: "admin",
+          isVerified: true
+        };
+        await dbService.updateAdminUser(adminEmail, adminUser);
+        dbUser = adminUser;
+      }
     }
 
-    const user = await dbService.getUserByEmail(emailLower);
-    if (!user || user.passwordHash !== password) {
+    if (!dbUser) {
       return res.status(400).json({ error: "Invalid credentials." });
     }
+
+    const { isValid: passwordMatches, needsRehash } = await verifyPassword(password, dbUser.passwordHash);
+    if (!passwordMatches) {
+      return res.status(400).json({ error: "Invalid credentials." });
+    }
+
+    if (needsRehash) {
+      const upgradedHash = await hashPassword(password);
+      await dbService.addUser({ ...dbUser, passwordHash: upgradedHash });
+    }
+
+    const user = dbUser;
 
     if (user.isVerified === false) {
       // Re-send OTP if needed
@@ -235,6 +265,7 @@ app.post("/api/auth/login", async (req, res) => {
       email: user.email,
       displayName: user.displayName,
       role: user.role,
+      token: signJwt({ email: user.email, role: user.role, displayName: user.displayName }),
       isVerified: true
     });
   } catch (error: any) {
@@ -1258,19 +1289,8 @@ Provide structured JSON comparison:
   }
 });
 
-
 // Serve static files in production, use Vite middleware in development
 async function startServer() {
-  // Bootstrap the admin account on DB startup
-  await bootstrapAdmin();
-
-  // Clean up mock community posts from feed
-  try {
-    await dbService.cleanMockPosts();
-  } catch (cleanErr) {
-    console.error("Failed to clean mock community posts:", cleanErr);
-  }
-
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1287,6 +1307,11 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`MarketMinds Server running on http://0.0.0.0:${PORT}`);
+
+    // Asynchronously bootstrap the admin account and clean mock posts in background
+    // (Never block port binding, so Hugging Face Spaces becomes ready immediately)
+    bootstrapAdmin().catch((err) => console.error("Failed to bootstrap admin:", err));
+    dbService.cleanMockPosts().catch((cleanErr) => console.error("Failed to clean mock community posts:", cleanErr));
   });
 }
 

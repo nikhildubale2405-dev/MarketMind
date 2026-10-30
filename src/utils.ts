@@ -39,3 +39,12 @@ function getOffsetDateString(offset: number): string {
   const istDate = new Date(utcMs + 19800000); // IST = UTC+5:30 = +19800000 ms
   return istDate.toISOString().split("T")[0];
 }
+
+export function getAuthToken(): string | null {
+  return typeof window !== "undefined" ? localStorage.getItem("mm_user_token") : null;
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { "Authorization": `Bearer ${token}` } : {};
+}

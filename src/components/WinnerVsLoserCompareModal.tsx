@@ -39,7 +39,7 @@ export default function WinnerVsLoserCompareModal({
       const res = await fetch("/api/trade-examples/compare", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${userEmail}`,
+          "Authorization": `Bearer ${localStorage.getItem("mm_user_token") || ""}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({

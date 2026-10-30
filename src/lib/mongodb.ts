@@ -10,12 +10,14 @@ const dbName = process.env.MONGODB_DB || "TradingLog";
 
 let client: MongoClient | null = null;
 let dbInstance: Db | null = null;
+let connectPromise: Promise<Db | null> | null = null;
 
 // File-based fallback path
 const DB_FILE = path.join(process.cwd(), "db.json");
 
 export async function getMongoDb(): Promise<Db | null> {
   if (dbInstance) return dbInstance;
+  if (connectPromise) return connectPromise;
 
   const rawUri = process.env.MONGODB_URI;
   const sanitizedUri = rawUri ? rawUri.trim().replace(/^["']|["']$/g, "").trim() : "";
@@ -24,26 +26,42 @@ export async function getMongoDb(): Promise<Db | null> {
   if (!sanitizedUri || sanitizedUri === "MONGODB_URI" || (!sanitizedUri.startsWith("mongodb://") && !sanitizedUri.startsWith("mongodb+srv://"))) {
     return null;
   }
-  try {
-    client = new MongoClient(sanitizedUri);
-    await client.connect();
-    dbInstance = client.db(activeDbName);
-    console.log(`Connected successfully to MongoDB Database: "${activeDbName}"`);
-    
-    // Auto-migrate local data on first successful connection
-    try {
-      await runMigration(dbInstance);
-    } catch (migErr) {
-      console.error("Migration to MongoDB failed:", migErr);
-    }
 
-    return dbInstance;
-  } catch (error) {
-    console.error("Could not connect to MongoDB Atlas cluster:", error);
-    client = null;
-    dbInstance = null;
-    return null;
-  }
+  connectPromise = (async () => {
+    try {
+      client = new MongoClient(sanitizedUri, {
+        maxPoolSize: 10,
+        minPoolSize: 1,
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 10000,
+        socketTimeoutMS: 20000,
+      });
+      await client.connect();
+      dbInstance = client.db(activeDbName);
+      console.log(`Connected successfully to MongoDB Database: "${activeDbName}"`);
+
+      // Ensure indexes in background for fast lookups (O(1) instead of slow collection scans)
+      dbInstance.collection("userStates").createIndex({ email: 1 }).catch(() => {});
+      dbInstance.collection("users").createIndex({ email: 1 }).catch(() => {});
+      dbInstance.collection("posts").createIndex({ date: -1 }).catch(() => {});
+
+      // Auto-migrate local data asynchronously without blocking initial request
+      runMigration(dbInstance).catch((migErr) => {
+        console.error("Migration to MongoDB failed:", migErr);
+      });
+
+      return dbInstance;
+    } catch (error) {
+      console.error("Could not connect to MongoDB Atlas cluster:", error);
+      client = null;
+      dbInstance = null;
+      return null;
+    } finally {
+      connectPromise = null;
+    }
+  })();
+
+  return connectPromise;
 }
 
 // Perform simple one-way migration of db.json content to Mongo if collections are empty

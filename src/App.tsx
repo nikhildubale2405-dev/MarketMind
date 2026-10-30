@@ -52,6 +52,7 @@ export default function App() {
   const [userEmail, setUserEmail] = useState<string | null>(() => localStorage.getItem("mm_user_email"));
   const [userDisplayName, setUserDisplayName] = useState<string | null>(() => localStorage.getItem("mm_user_name"));
   const [userRole, setUserRole] = useState<string | null>(() => localStorage.getItem("mm_user_role"));
+  const [userToken, setUserToken] = useState<string | null>(() => localStorage.getItem("mm_user_token"));
   const [authMode, setAuthMode] = useState<"login" | "register" | "verify-otp">("login");
   
   // Auth Form Input States
@@ -124,14 +125,28 @@ export default function App() {
 
   // Fetch or Load state depending on credentials
   const fetchStatePayload = async (email: string) => {
+    // 1. Instant optimistic load from localStorage (zero-lag UI render)
+    const localTradesStr = localStorage.getItem(`mm_trades_${email}`);
+    const localTxStr = localStorage.getItem(`mm_tx_${email}`);
+    const localTrades: Trade[] = localTradesStr ? JSON.parse(localTradesStr) : [];
+    const localTx: Transaction[] = localTxStr ? JSON.parse(localTxStr) : [];
+
+    if (localTrades.length > 0 || localTx.length > 0) {
+      const mockIds = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
+      const mockTxIds = ["tr1", "tr2", "tr4"];
+      setTrades(localTrades.filter(t => !mockIds.includes(t.id)));
+      setTransactions(localTx.filter(tr => !mockTxIds.includes(tr.id)));
+    }
+
     let fetchedTrades: Trade[] = [];
     let fetchedTransactions: Transaction[] = [];
     let hasLoadedFromServer = false;
 
     try {
+      const token = localStorage.getItem("mm_user_token");
       const res = await fetch("/api/state", {
         headers: {
-          "Authorization": `Bearer ${email}`
+          "Authorization": token ? `Bearer ${token}` : ""
         }
       });
       if (res.ok) {
@@ -147,12 +162,6 @@ export default function App() {
     } catch (err) {
       console.error("Could not fetch state backend logs. Falling back to local cache.", err);
     }
-
-    // Check local storage for this user
-    const localTradesStr = localStorage.getItem(`mm_trades_${email}`);
-    const localTxStr = localStorage.getItem(`mm_tx_${email}`);
-    const localTrades: Trade[] = localTradesStr ? JSON.parse(localTradesStr) : [];
-    const localTx: Transaction[] = localTxStr ? JSON.parse(localTxStr) : [];
 
     // If server returned 0 trades, but local storage has trades, retain local trades and resync to server
     if (hasLoadedFromServer && fetchedTrades.length === 0 && localTrades.length > 0) {
@@ -269,11 +278,12 @@ export default function App() {
 
       // 2. Network sync to MongoDB / Server
       try {
-        const res = await fetch("/api/state", {
+        const token = localStorage.getItem("mm_user_token");
+      const res = await fetch("/api/state", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${userEmail}`
+            "Authorization": token ? `Bearer ${token}` : ""
           },
           body: JSON.stringify({ trades: updatedTrades, transactions: updatedTransactions })
         });
@@ -299,10 +309,10 @@ export default function App() {
 
   // Helper utility for calling secure authenticated endpoints effortlessly
   const handleFetchWithAuth = async (url: string, options: RequestInit = {}) => {
-    const email = userEmail || "sandbox_guest";
+    const token = localStorage.getItem("mm_user_token");
     const headers = {
       ...options.headers,
-      "Authorization": `Bearer ${email}`
+      ...(token ? { "Authorization": `Bearer ${token}` } : {})
     };
     const res = await fetch(url, { ...options, headers });
     return await res.json();
@@ -357,6 +367,10 @@ export default function App() {
           localStorage.setItem("mm_user_email", data.email);
           localStorage.setItem("mm_user_name", data.displayName);
           localStorage.setItem("mm_user_role", data.role);
+        if (data.token) {
+          localStorage.setItem("mm_user_token", data.token);
+          setUserToken(data.token);
+        }
           
           setUserEmail(data.email);
           setUserDisplayName(data.displayName);
@@ -402,6 +416,10 @@ export default function App() {
         localStorage.setItem("mm_user_email", data.email);
         localStorage.setItem("mm_user_name", data.displayName);
         localStorage.setItem("mm_user_role", data.role);
+        if (data.token) {
+          localStorage.setItem("mm_user_token", data.token);
+          setUserToken(data.token);
+        }
 
         setUserEmail(data.email);
         setUserDisplayName(data.displayName);
@@ -451,6 +469,8 @@ export default function App() {
     localStorage.removeItem("mm_user_email");
     localStorage.removeItem("mm_user_name");
     localStorage.removeItem("mm_user_role");
+    localStorage.removeItem("mm_user_token");
+    setUserToken(null);
     setUserEmail(null);
     setUserDisplayName(null);
     setUserRole(null);

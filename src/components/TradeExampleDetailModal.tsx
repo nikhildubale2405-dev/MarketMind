@@ -29,7 +29,7 @@ export default function TradeExampleDetailModal({
       const res = await fetch("/api/trade-examples/analyze", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${userEmail}`,
+          "Authorization": `Bearer ${localStorage.getItem("mm_user_token") || ""}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ tradeId: trade.id })
