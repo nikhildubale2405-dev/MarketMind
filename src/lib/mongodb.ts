@@ -304,6 +304,24 @@ export const dbService = {
     saveLocalDB(local);
   },
 
+  async getPasswordMigrationStats(): Promise<{ totalUsers: number; hashedUsers: number; legacyPlaintextUsers: number }> {
+    const users = await this.getUsers();
+    let hashedCount = 0;
+    let plaintextCount = 0;
+    for (const u of users) {
+      if (u.passwordHash && (u.passwordHash.startsWith("scrypt:") || u.passwordHash.startsWith("$2"))) {
+        hashedCount++;
+      } else {
+        plaintextCount++;
+      }
+    }
+    return {
+      totalUsers: users.length,
+      hashedUsers: hashedCount,
+      legacyPlaintextUsers: plaintextCount
+    };
+  },
+
   // --- TRADES/TRANSACTIONS STATES ---
   async getUserState(email: string): Promise<{ trades: any[]; transactions: any[]; strategies?: any[]; lastEdgeAnalysis?: any }> {
     const emailLower = email.toLowerCase();
@@ -478,7 +496,7 @@ export const dbService = {
     if (db) {
       const users = await db.collection("users").find().toArray();
       const userEmails = users.map(u => u.email.toLowerCase());
-      const adminEmail = (process.env.ADMIN_EMAIL || "nickdubale05@gmail.com").toLowerCase();
+      const adminEmail = (process.env.ADMIN_EMAIL && process.env.ADMIN_EMAIL !== "ADMIN_EMAIL") ? process.env.ADMIN_EMAIL.trim().toLowerCase() : "";
       if (!userEmails.includes(adminEmail)) {
         userEmails.push(adminEmail);
       }
@@ -492,7 +510,7 @@ export const dbService = {
     const local = getLocalDB();
     const users = local.users || [];
     const userEmails = users.map((u: any) => u.email.toLowerCase());
-    const adminEmail = (process.env.ADMIN_EMAIL || "nickdubale05@gmail.com").toLowerCase();
+    const adminEmail = (process.env.ADMIN_EMAIL && process.env.ADMIN_EMAIL !== "ADMIN_EMAIL") ? process.env.ADMIN_EMAIL.trim().toLowerCase() : "";
     if (!userEmails.includes(adminEmail)) {
       userEmails.push(adminEmail);
     }

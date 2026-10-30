@@ -111,6 +111,20 @@ export async function verifyPassword(
     });
   }
 
+  // Handle bcrypt ($2a$, $2b$, $2y$) format if present in existing databases
+  if (storedHash.startsWith("$2a$") || storedHash.startsWith("$2b$") || storedHash.startsWith("$2y$")) {
+    try {
+      const bcryptModule = await import("bcryptjs");
+      const compareFn = (bcryptModule as any).compare || (bcryptModule as any).default?.compare;
+      if (typeof compareFn === "function") {
+        const isBcryptValid = await compareFn(password, storedHash);
+        return { isValid: isBcryptValid, needsRehash: false };
+      }
+    } catch {
+      console.warn("Detected bcrypt hash format in database, but bcryptjs is not installed.");
+    }
+  }
+
   // Legacy fallback check: If the stored password was saved as plain text before this fix,
   // we do a timing-safe check and signal that it must be re-hashed to scrypt immediately.
   const storedBuffer = Buffer.from(storedHash);

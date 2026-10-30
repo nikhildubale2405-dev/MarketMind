@@ -19,9 +19,14 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 // Ensure Admin account is registered on bootstrap
 async function bootstrapAdmin() {
   try {
-    const adminEmail = process.env.ADMIN_EMAIL || "nickdubale05@gmail.com";
-    const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
-    const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || "System Admin";
+    const adminEmail = process.env.ADMIN_EMAIL?.trim();
+    const adminPassword = process.env.ADMIN_PASSWORD?.trim();
+    const adminDisplayName = process.env.ADMIN_DISPLAY_NAME?.trim() || "System Admin";
+
+    if (!adminEmail || !adminPassword || adminEmail === "ADMIN_EMAIL" || adminPassword === "ADMIN_PASSWORD") {
+      console.log("[SECURITY NOTICE] Admin bootstrap skipped: ADMIN_EMAIL/ADMIN_PASSWORD unset or placeholder in .env.");
+      return;
+    }
 
     const hashedAdminPassword = await hashPassword(adminPassword);
     const adminUser = {
@@ -83,7 +88,8 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ error: "Email already registered." });
     }
 
-    const isEnvAdmin = emailLower === (process.env.ADMIN_EMAIL || "nickdubale05@gmail.com").toLowerCase();
+    const envAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const isEnvAdmin = Boolean(envAdminEmail && envAdminEmail !== "admin_email" && emailLower === envAdminEmail);
     const role = isEnvAdmin ? "admin" : "user";
 
     // Generate 6-digit verification OTP
@@ -210,11 +216,12 @@ app.post("/api/auth/login", async (req, res) => {
     const emailLower = email.toLowerCase();
 
     // Check if it's the admin details from environment dynamically
-    const adminEmail = process.env.ADMIN_EMAIL || "nickdubale05@gmail.com";
-    const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const adminPassword = process.env.ADMIN_PASSWORD?.trim();
+    const isConfiguredAdmin = Boolean(adminEmail && adminPassword && adminEmail !== "admin_email" && adminPassword !== "admin_password");
 
     let dbUser = await dbService.getUserByEmail(emailLower);
-    if (!dbUser && emailLower === adminEmail.toLowerCase()) {
+    if (!dbUser && isConfiguredAdmin && emailLower === adminEmail) {
       const isEnvAdminMatch = await verifyPassword(password, await hashPassword(adminPassword));
       if (isEnvAdminMatch.isValid) {
         const adminUser = {
@@ -353,6 +360,25 @@ app.delete("/api/admin/users/:email", authenticateUser, async (req: any, res) =>
   }
 });
 
+app.get("/api/admin/security/migration-status", authenticateUser, async (req: any, res) => {
+  try {
+    const currentUser = await dbService.getUserByEmail(req.userEmail);
+    if (!currentUser || currentUser.role !== "admin") {
+      return res.status(403).json({ error: "Access denied. Admin role required." });
+    }
+
+    const stats = await dbService.getPasswordMigrationStats();
+    res.json({
+      success: true,
+      stats,
+      percentMigrated: stats.totalUsers > 0 ? Math.round((stats.hashedUsers / stats.totalUsers) * 100) : 100,
+      migrationPolicy: "Transparent on-login salted scrypt rehash + OTP-assisted password reset."
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Community Feed and Leaderboard endpoints
 app.get("/api/community/posts", async (req, res) => {
   try {
@@ -472,7 +498,7 @@ app.get("/api/community/leaderboard", async (req, res) => {
           loss += Math.abs(val);
         }
         totalQuality += Number(t.qualityScore) || 3;
-        
+
         const isEmotional = ["fomo", "revenge", "anxious", "greedy"].includes((t.emotionalState || "").toLowerCase());
         if (!isEmotional) {
           cleanEmotionalTrades++;
@@ -481,14 +507,14 @@ app.get("/api/community/leaderboard", async (req, res) => {
 
       const netResult = profit - loss;
       const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
-      
+
       // Calculate a highly analytical Consistency Score (0-100)
       // Win Rate: 40% weight
       // Setup Quality Score (1-5 represented as %): 35% weight
       // Emotional execution control (no FOMO/revenge trades): 25% weight
       const emotionalDiscipline = totalTrades > 0 ? (cleanEmotionalTrades / totalTrades) * 100 : 0;
       const avgQualityPercent = totalTrades > 0 ? (totalQuality / (totalTrades * 5)) * 100 : 0;
-      
+
       const consistency = totalTrades > 0
         ? Math.round((winRate * 0.40) + (avgQualityPercent * 0.35) + (emotionalDiscipline * 0.25))
         : 0;
@@ -502,8 +528,8 @@ app.get("/api/community/leaderboard", async (req, res) => {
         consistency: Math.min(100, Math.max(10, consistency)) // Bound between 10% and 100%
       };
     })
-    .filter(item => item.totalTrades > 0)
-    .sort((a, b) => b.netResult - a.netResult); // highest profit first
+      .filter(item => item.totalTrades > 0)
+      .sort((a, b) => b.netResult - a.netResult); // highest profit first
 
     res.json(leaderboard);
   } catch (error: any) {
@@ -540,7 +566,7 @@ app.post("/api/gemini/analyze", authenticateUser, async (req: any, res) => {
 
     // Format trades cleanly for Gemini including advanced compliance and mistake parameters
     const tradesSummary = trades.map((t, idx) => (
-      `Trade #${idx+1}: Symbol=${t.symbol}, Type=${t.type}, Lots=${t.size}, PnL=$${t.profitLoss}, Setup=${t.setupDate} ${t.setupTime}, SetupType=${t.setupType || 'N/A'}, Session=${t.session || 'N/A'}, Entry=${t.entryDate} ${t.entryTime}, RiskReward=${t.riskRewardRatio || 'N/A'}, QualityScore=${t.qualityScore || 'N/A'}, Emotion=${t.emotionalState || 'Calm'}, Confidence=${t.psychConfidence || 'N/A'}/10, Stress=${t.psychStress || 'N/A'}/10, Fear=${t.psychFear || 'N/A'}/10, Mistakes=${t.mistakeTags ? t.mistakeTags.join(",") : "None"}, Notes=${t.notes || "None"}`
+      `Trade #${idx + 1}: Symbol=${t.symbol}, Type=${t.type}, Lots=${t.size}, PnL=$${t.profitLoss}, Setup=${t.setupDate} ${t.setupTime}, SetupType=${t.setupType || 'N/A'}, Session=${t.session || 'N/A'}, Entry=${t.entryDate} ${t.entryTime}, RiskReward=${t.riskRewardRatio || 'N/A'}, QualityScore=${t.qualityScore || 'N/A'}, Emotion=${t.emotionalState || 'Calm'}, Confidence=${t.psychConfidence || 'N/A'}/10, Stress=${t.psychStress || 'N/A'}/10, Fear=${t.psychFear || 'N/A'}/10, Mistakes=${t.mistakeTags ? t.mistakeTags.join(",") : "None"}, Notes=${t.notes || "None"}`
     )).join("\n");
 
     const prompt = `You are a world-class professional institutional trading coach and performance analyst. 
@@ -680,7 +706,7 @@ function calculateDataSufficiency(trades: any[]): any {
 // Helper 2: NLP Feature Extractor from trade notes & parameters
 function extractTradeNLPFeatures(trade: any): any {
   const text = `${trade.notes || ''} ${trade.screenshotNotes || ''}`.toLowerCase();
-  
+
   const liquidityEvent: string[] = [];
   if (text.includes('sweep') || text.includes('liquidity')) liquidityEvent.push('Liquidity Sweep');
   if (text.includes('asian low') || text.includes('asian high')) liquidityEvent.push('Asian Session H/L Sweep');
@@ -893,8 +919,8 @@ app.post("/api/my-edge/analyze", authenticateUser, async (req: any, res) => {
       `INFERRED PATTERN: Trades with higher setup quality ratings (4-5/5) yield 35% higher profit factor than unrated trades.`,
       `INFERRED PATTERN: Disciplined trades without FOMO or Revenge tags account for the majority of positive net PnL.`
     ];
-    let dataLimitations = sufficiency.missingFields.length > 0 
-      ? [`Data Limitation: Missing ${sufficiency.missingFields.join(', ')}.`] 
+    let dataLimitations = sufficiency.missingFields.length > 0
+      ? [`Data Limitation: Missing ${sufficiency.missingFields.join(', ')}.`]
       : [`Data is adequate for exploratory pattern discovery.`];
 
     // Attempt Gemini AI Refinement if API Key is set
@@ -1029,7 +1055,7 @@ Journal Quality Score: ${journalQualityScore}/100
     // Merge strategy candidates with existing user strategies
     const existingStrategies = await dbService.getUserStrategies(req.userEmail);
     const existingActive = existingStrategies.filter(s => s.status === "active" || s.status === "rejected");
-    
+
     // Add new candidate strategies if not already present
     const updatedStrategies = [...existingActive, ...strategyCandidates];
     await dbService.saveUserStrategies(req.userEmail, updatedStrategies);
@@ -1182,7 +1208,7 @@ System Rules:
       observations: [`Executed ${targetTrade.symbol} ${targetTrade.type} during ${targetTrade.session || 'trade'} session.`],
       strengths: targetTrade.playbookCompliance === "YES" ? ["Strict playbook compliance"] : [],
       mistakes: targetTrade.mistakeTags || [],
-      lesson: targetTrade.status === "WIN" 
+      lesson: targetTrade.status === "WIN"
         ? "Maintain disciplined execution following defined entry triggers."
         : "Valid risk parameters maintained. Review entry confirmation rules before execution.",
       playbookRelevance: targetTrade.playbookCompliance === "YES" ? "High Playbook Alignment" : "Needs Playbook Discipline Alignment"
@@ -1249,7 +1275,7 @@ Provide structured JSON comparison:
 }`;
 
     let comparisonData = {
-      keySeparator: winner.playbookCompliance !== loser.playbookCompliance 
+      keySeparator: winner.playbookCompliance !== loser.playbookCompliance
         ? `The winning trade strictly followed the Playbook plan (${winner.playbookCompliance}), whereas the losing trade violated defined rules (${loser.playbookCompliance}).`
         : "Difference in session timing, market volatility, or emotional discipline at entry.",
       winningFactors: [
