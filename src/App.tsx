@@ -292,6 +292,16 @@ export default function App() {
           const errMsg = errData.error || `Server responded with status ${res.status}`;
           console.error("Database save failed:", errMsg);
           alert(`Warning: Trade changes could not be saved to database (${errMsg}).`);
+        } else {
+          const data = await res.json().catch(() => ({}));
+          if (data.trades && Array.isArray(data.trades)) {
+            setTrades(data.trades);
+            try {
+              localStorage.setItem(`mm_trades_${userEmail}`, JSON.stringify(data.trades));
+            } catch (storageErr) {
+              console.warn("Could not cache updated trades to localStorage:", storageErr);
+            }
+          }
         }
       } catch (err: any) {
         console.error("Failed to sync client trades state to server memory.", err);

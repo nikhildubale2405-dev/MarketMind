@@ -280,6 +280,34 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+// Trade Screenshot Images Serving Endpoint (Cached & High-Performance)
+app.get("/api/trade-images/:tradeId/:index", async (req, res) => {
+  try {
+    const { tradeId, index } = req.params;
+    const imgIdx = parseInt(index, 10) || 0;
+    const imgData = await dbService.getTradeImage(tradeId, imgIdx);
+    if (!imgData) {
+      return res.status(404).send("Image not found");
+    }
+
+    const matches = imgData.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (matches && matches.length === 3) {
+      const contentType = matches[1];
+      const buffer = Buffer.from(matches[2], "base64");
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      return res.send(buffer);
+    } else {
+      res.setHeader("Content-Type", "image/jpeg");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      return res.send(Buffer.from(imgData, "base64"));
+    }
+  } catch (error: any) {
+    console.error("Error retrieving trade image:", error);
+    res.status(500).send("Error loading image");
+  }
+});
+
 // User State Sync Endpoints (Private Trade History, Entries, Deposits, Withdrawals, Equity)
 app.get("/api/state", authenticateUser, async (req: any, res) => {
   try {
@@ -297,10 +325,10 @@ app.post("/api/state", authenticateUser, async (req: any, res) => {
       return res.status(400).json({ error: "Invalid state structure. Expected trades and transactions arrays." });
     }
 
-    await dbService.setUserState(req.userEmail, trades, transactions);
+    const savedTrades = await dbService.setUserState(req.userEmail, trades, transactions);
     console.log(`Successfully persisted ${trades.length} trades and ${transactions.length} transactions for ${req.userEmail}`);
 
-    res.json({ success: true, count: trades.length });
+    res.json({ success: true, count: trades.length, trades: savedTrades });
   } catch (error: any) {
     console.error(`Failed to persist user state for ${req.userEmail}:`, error);
     res.status(500).json({ error: error.message || "Failed to persist state to database." });

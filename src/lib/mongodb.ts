@@ -44,10 +44,17 @@ export async function getMongoDb(): Promise<Db | null> {
       dbInstance.collection("userStates").createIndex({ email: 1 }).catch(() => {});
       dbInstance.collection("users").createIndex({ email: 1 }).catch(() => {});
       dbInstance.collection("posts").createIndex({ date: -1 }).catch(() => {});
+      dbInstance.collection("tradeImages").createIndex({ tradeId: 1, imageIndex: 1 }).catch(() => {});
+      dbInstance.collection("tradeImages").createIndex({ email: 1 }).catch(() => {});
 
       // Auto-migrate local data asynchronously without blocking initial request
       runMigration(dbInstance).catch((migErr) => {
         console.error("Migration to MongoDB failed:", migErr);
+      });
+
+      // Auto-migrate any existing bloated userStates with inline base64 images
+      migrateBloatedUserStates(dbInstance).catch((migErr) => {
+        console.error("Migration of bloated userStates failed:", migErr);
       });
 
       return dbInstance;
@@ -107,14 +114,101 @@ async function runMigration(db: Db) {
   }
 }
 
+// Offload inline base64 images from trades array to dedicated tradeImages collection
+export async function offloadTradeImages(email: string, trades: any[], db: Db | null): Promise<any[]> {
+  if (!Array.isArray(trades) || trades.length === 0) return trades;
+
+  let hasChanges = false;
+  const processedTrades = await Promise.all(
+    trades.map(async (trade) => {
+      if (!trade || !Array.isArray(trade.images) || trade.images.length === 0) {
+        return trade;
+      }
+
+      let tradeModified = false;
+      const updatedImages = await Promise.all(
+        trade.images.map(async (imgSrc: string, idx: number) => {
+          if (typeof imgSrc === "string" && imgSrc.startsWith("data:image/")) {
+            hasChanges = true;
+            tradeModified = true;
+            const imageId = `${trade.id}_${idx}`;
+
+            if (db) {
+              try {
+                await db.collection("tradeImages").updateOne(
+                  { _id: imageId as any },
+                  {
+                    $set: {
+                      tradeId: String(trade.id),
+                      email: email.toLowerCase(),
+                      imageIndex: idx,
+                      data: imgSrc,
+                      updatedAt: new Date()
+                    }
+                  },
+                  { upsert: true }
+                );
+              } catch (err) {
+                console.error(`Failed to offload trade image ${imageId}:`, err);
+              }
+            } else {
+              const local = getLocalDB();
+              if (!local.tradeImages) local.tradeImages = {};
+              local.tradeImages[imageId] = imgSrc;
+              saveLocalDB(local);
+            }
+
+            return `/api/trade-images/${encodeURIComponent(trade.id)}/${idx}`;
+          }
+          return imgSrc;
+        })
+      );
+
+      if (tradeModified) {
+        return { ...trade, images: updatedImages };
+      }
+      return trade;
+    })
+  );
+
+  return hasChanges ? processedTrades : trades;
+}
+
+// Background migration to shrink existing bloated documents in userStates
+async function migrateBloatedUserStates(db: Db) {
+  try {
+    const statesColl = db.collection("userStates");
+    // Find docs that contain inline data:image/ in any trade image
+    const bloatedDocs = await statesColl.find({
+      "trades.images": { $regex: /^data:image\// }
+    }).toArray();
+
+    for (const doc of bloatedDocs) {
+      if (doc.email && Array.isArray(doc.trades)) {
+        console.log(`[Auto-Migration] Found legacy inline images for user: ${doc.email}, optimizing document size...`);
+        const updatedTrades = await offloadTradeImages(doc.email, doc.trades, db);
+        await statesColl.updateOne(
+          { _id: doc._id },
+          { $set: { trades: updatedTrades } }
+        );
+        console.log(`[Auto-Migration] Successfully migrated and shrunk userStates document for: ${doc.email}`);
+      }
+    }
+  } catch (err) {
+    console.error("Error migrating bloated userStates:", err);
+  }
+}
+
 // Fallback JSON-file read/write utilities
 function getLocalDB(): any {
   try {
-    if (!fs.existsSync(DB_FILE)) return { users: [], userStates: {}, posts: [] };
-    return JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    if (!fs.existsSync(DB_FILE)) return { users: [], userStates: {}, posts: [], tradeImages: {} };
+    const parsed = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    if (!parsed.tradeImages) parsed.tradeImages = {};
+    return parsed;
   } catch (error) {
     console.error("Error reading local db.json:", error);
-    return { users: [], userStates: {}, posts: [] };
+    return { users: [], userStates: {}, posts: [], tradeImages: {} };
   }
 }
 
@@ -293,6 +387,7 @@ export const dbService = {
     if (db) {
       await db.collection("users").deleteOne({ email: emailLower });
       await db.collection("userStates").deleteOne({ email: emailLower });
+      await db.collection("tradeImages").deleteMany({ email: emailLower }).catch(() => {});
       return;
     }
 
@@ -329,8 +424,23 @@ export const dbService = {
     if (db) {
       const doc = await db.collection("userStates").findOne({ email: emailLower });
       if (doc) {
+        let trades = doc.trades || [];
+        // Check if existing document contains legacy inline base64 images that bloat BSON size
+        const hasBase64 = trades.some((t: any) =>
+          Array.isArray(t?.images) && t.images.some((img: any) => typeof img === "string" && img.startsWith("data:image/"))
+        );
+        if (hasBase64) {
+          console.log(`[Auto-Migration] Offloading legacy inline images for user: ${emailLower}`);
+          trades = await offloadTradeImages(emailLower, trades, db);
+          // Update MongoDB in background with the shrunken trades array to keep document size < 1MB
+          db.collection("userStates").updateOne(
+            { email: emailLower },
+            { $set: { trades } }
+          ).catch((e) => console.error("Failed to update userStates with offloaded images:", e));
+        }
+
         return {
-          trades: doc.trades || [],
+          trades,
           transactions: doc.transactions || [],
           strategies: doc.strategies || [],
           lastEdgeAnalysis: doc.lastEdgeAnalysis || null
@@ -349,11 +459,15 @@ export const dbService = {
     };
   },
 
-  async setUserState(email: string, trades: any[], transactions: any[], strategies?: any[], lastEdgeAnalysis?: any): Promise<void> {
+  async setUserState(email: string, trades: any[], transactions: any[], strategies?: any[], lastEdgeAnalysis?: any): Promise<any[]> {
     const emailLower = email.toLowerCase();
     const db = await getMongoDb();
+
+    // Offload all base64 screenshots to tradeImages collection first
+    const processedTrades = await offloadTradeImages(emailLower, trades, db);
+
     if (db) {
-      const updateDoc: any = { trades, transactions };
+      const updateDoc: any = { trades: processedTrades, transactions };
       if (strategies !== undefined) updateDoc.strategies = strategies;
       if (lastEdgeAnalysis !== undefined) updateDoc.lastEdgeAnalysis = lastEdgeAnalysis;
       try {
@@ -362,23 +476,74 @@ export const dbService = {
           { $set: updateDoc },
           { upsert: true }
         );
+
+        // Asynchronously clean up orphaned images for trades deleted by user
+        const currentTradeIds = processedTrades.map(t => String(t.id));
+        db.collection("tradeImages").deleteMany({
+          email: emailLower,
+          tradeId: { $nin: currentTradeIds }
+        }).catch(() => {});
       } catch (err: any) {
         console.error(`MongoDB update failed for user ${emailLower}:`, err);
         throw new Error(`MongoDB persistence error: ${err.message || "Failed to save state to MongoDB."}`);
       }
-      return;
+      return processedTrades;
     }
 
     const local = getLocalDB();
     const existing = local.userStates[emailLower] || { trades: [], transactions: [] };
     local.userStates[emailLower] = {
       ...existing,
-      trades,
+      trades: processedTrades,
       transactions,
       ...(strategies !== undefined ? { strategies } : {}),
       ...(lastEdgeAnalysis !== undefined ? { lastEdgeAnalysis } : {})
     };
     saveLocalDB(local);
+    return processedTrades;
+  },
+
+  // --- TRADE SCREENSHOT IMAGES STORAGE ---
+  async getTradeImage(tradeId: string, index: number): Promise<string | null> {
+    const imageId = `${tradeId}_${index}`;
+    const db = await getMongoDb();
+    if (db) {
+      const doc = await db.collection("tradeImages").findOne({ _id: imageId as any });
+      if (doc && doc.data) {
+        return doc.data;
+      }
+      const docByFields = await db.collection("tradeImages").findOne({
+        tradeId: String(tradeId),
+        imageIndex: index
+      });
+      if (docByFields && docByFields.data) {
+        return docByFields.data;
+      }
+      return null;
+    }
+
+    const local = getLocalDB();
+    if (local.tradeImages && local.tradeImages[imageId]) {
+      return local.tradeImages[imageId];
+    }
+    return null;
+  },
+
+  async deleteTradeImages(tradeId: string): Promise<void> {
+    const db = await getMongoDb();
+    if (db) {
+      await db.collection("tradeImages").deleteMany({ tradeId: String(tradeId) }).catch(() => {});
+      return;
+    }
+    const local = getLocalDB();
+    if (local.tradeImages) {
+      Object.keys(local.tradeImages).forEach(key => {
+        if (key.startsWith(`${tradeId}_`)) {
+          delete local.tradeImages[key];
+        }
+      });
+      saveLocalDB(local);
+    }
   },
 
   async getUserStrategies(email: string): Promise<any[]> {
