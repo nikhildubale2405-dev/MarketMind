@@ -164,13 +164,31 @@ export default function App() {
     }
 
     // If server returned 0 trades, but local storage has trades, retain local trades and resync to server
-    if (hasLoadedFromServer && fetchedTrades.length === 0 && localTrades.length > 0) {
-      console.log("Server had 0 trades but local storage has trades. Resyncing local trades to server.");
-      fetchedTrades = localTrades;
-      if (fetchedTransactions.length === 0) fetchedTransactions = localTx;
-      syncStatePayload(fetchedTrades, fetchedTransactions);
+    if (hasLoadedFromServer) {
+      if (localTrades.length > 0) {
+        const serverTradeIds = new Set(fetchedTrades.map(t => t.id));
+        const unsynced = localTrades.filter(t => !serverTradeIds.has(t.id));
+        if (unsynced.length > 0) {
+          fetchedTrades = [...fetchedTrades, ...unsynced];
+          syncStatePayload(fetchedTrades, fetchedTransactions);
+    
+        }
+      }
+
+
+      if (localTx.length > 0) {
+        const serverTxIds = new Set(fetchedTransactions.map(tr => tr.id));
+        const unsyncedTx = localTx.filter(tr => !serverTxIds.has(tr.id));
+        if (unsyncedTx.length > 0) {
+          fetchedTransactions = [...fetchedTransactions, ...unsyncedTx];
+          syncStatePayload(fetchedTrades, fetchedTransactions);
+    
+        }
+      }
+
     } else if (!hasLoadedFromServer) {
       if (localTrades.length > 0 || localTx.length > 0) {
+  
         fetchedTrades = localTrades;
         fetchedTransactions = localTx;
       } else {
@@ -199,7 +217,7 @@ export default function App() {
 
           localStorage.removeItem("mm_offline_trades");
           localStorage.removeItem("mm_offline_tx");
-          syncStatePayload(fetchedTrades, fetchedTransactions);
+    
         }
       } catch (mergeErr) {
         console.warn("Failed to merge offline trades:", mergeErr);
@@ -528,6 +546,26 @@ export default function App() {
     const nextTx = transactions.filter(t => t.id !== id);
     setTransactions(nextTx);
     syncStatePayload(trades, nextTx);
+  };
+
+  const handleRecoverCloudData = async () => {
+    try {
+      const token = localStorage.getItem("mm_user_token");
+      const res = await fetch("/api/user/recover-trades", {
+        headers: { "Authorization": token ? `Bearer ${token}` : "" }
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Cloud Scan Complete:\n• Matching Records: ${data.matchingDocumentsForUser}\n• Total Trades Restored: ${data.totalMergedTradesRestored}\n\nRefreshing trade logs now...`);
+        if (userEmail) {
+          fetchStatePayload(userEmail);
+        }
+      } else {
+        alert("Scan returned: " + (data.message || JSON.stringify(data)));
+      }
+    } catch (err: any) {
+      alert("Cloud scan failed: " + err.message);
+    }
   };
 
   const handleExportDataCSV = () => {
@@ -972,7 +1010,14 @@ export default function App() {
               <div>
                 <strong className="text-slate-800 dark:text-slate-150">Export your trading data to an Excel file.</strong>
               </div>
-              <div className="flex gap-2.5">
+              <div className="flex gap-2.5 flex-wrap">
+                <button
+                  id="btn-recover-cloud-data"
+                  onClick={handleRecoverCloudData}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-1.5 rounded font-semibold pointer-events-auto cursor-pointer transition-colors"
+                >
+                  Scan & Recover Cloud Trades
+                </button>
                 <button
                   id="btn-export-csv"
                   onClick={handleExportDataCSV}
@@ -1033,7 +1078,14 @@ export default function App() {
                   Browse all recorded trades and funding account transactions
                 </p>
               </div>
-              <div className="flex items-center gap-3 text-xs font-mono text-slate-500">
+              <div className="flex items-center gap-3 text-xs font-mono text-slate-500 flex-wrap">
+                <button
+                  id="btn-recover-trades-history"
+                  onClick={handleRecoverCloudData}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1 rounded font-sans font-semibold cursor-pointer transition-colors shadow-xs"
+                >
+                  Scan & Recover Cloud Trades
+                </button>
                 <span className="bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2.5 py-1 rounded">
                   {trades.length} Trades
                 </span>

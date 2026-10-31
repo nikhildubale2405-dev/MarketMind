@@ -422,7 +422,13 @@ export const dbService = {
     const emailLower = email.toLowerCase();
     const db = await getMongoDb();
     if (db) {
-      const doc = await db.collection("userStates").findOne({ email: emailLower });
+      const escapedEmail = emailLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const docs = await db.collection("userStates").find({
+        email: { $regex: new RegExp(`^${escapedEmail}$`, "i") }
+      }).toArray();
+      const doc = docs.length > 0
+        ? docs.sort((a: any, b: any) => (b.trades?.length || 0) - (a.trades?.length || 0))[0]
+        : null;
       if (doc) {
         let trades = doc.trades || [];
         // Check if existing document contains legacy inline base64 images that bloat BSON size
@@ -501,6 +507,75 @@ export const dbService = {
     };
     saveLocalDB(local);
     return processedTrades;
+  },
+
+  // --- DIAGNOSTIC & AUTO-RECOVERY FOR TRADES ---
+  async diagnoseAndRecoverUserState(email: string): Promise<any> {
+    const emailLower = email.toLowerCase();
+    const db = await getMongoDb();
+    if (!db) {
+      return { isMongo: false, message: "MongoDB is not connected (using local storage fallback)." };
+    }
+
+    const escapedEmail = emailLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const allMatchingDocs = await db.collection("userStates").find({
+      email: { $regex: new RegExp(`^${escapedEmail}$`, "i") }
+    }).toArray();
+
+    // Also inspect all userStates in collection to see if trades exist under an alternate email
+    const allCollectionDocs = await db.collection("userStates").find({}).toArray();
+    const collectionSummary = allCollectionDocs.map((doc: any) => {
+      const trades = Array.isArray(doc.trades) ? doc.trades : [];
+      const dates = trades.map((t: any) => t.entryDate).filter(Boolean).sort();
+      return {
+        id: String(doc._id),
+        email: doc.email,
+        tradesCount: trades.length,
+        oldestTrade: dates[0] || null,
+        newestTrade: dates[dates.length - 1] || null
+      };
+    });
+
+    const tradeMap = new Map<string, any>();
+    const txMap = new Map<string, any>();
+
+    for (const doc of allMatchingDocs) {
+      if (Array.isArray(doc.trades)) {
+        for (const t of doc.trades) {
+          if (t && t.id) {
+            tradeMap.set(String(t.id), t);
+          }
+        }
+      }
+      if (Array.isArray(doc.transactions)) {
+        for (const tx of doc.transactions) {
+          if (tx && tx.id) {
+            txMap.set(String(tx.id), tx);
+          }
+        }
+      }
+    }
+
+    const mergedTrades = Array.from(tradeMap.values());
+    const mergedTx = Array.from(txMap.values());
+
+    if (mergedTrades.length > 0) {
+      const sanitizedTrades = await offloadTradeImages(emailLower, mergedTrades, db);
+      await db.collection("userStates").updateOne(
+        { email: emailLower },
+        { $set: { email: emailLower, trades: sanitizedTrades, transactions: mergedTx } },
+        { upsert: true }
+      );
+    }
+
+    return {
+      success: true,
+      userEmail: emailLower,
+      allAccountsInDatabase: collectionSummary,
+      matchingDocumentsForUser: allMatchingDocs.length,
+      totalMergedTradesRestored: mergedTrades.length,
+      totalMergedTransactionsRestored: mergedTx.length
+    };
   },
 
   // --- TRADE SCREENSHOT IMAGES STORAGE ---

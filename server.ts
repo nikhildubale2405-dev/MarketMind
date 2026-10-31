@@ -335,6 +335,17 @@ app.post("/api/state", authenticateUser, async (req: any, res) => {
   }
 });
 
+// Diagnostic & Auto-Recovery endpoint for trade history across MongoDB records
+app.get("/api/user/recover-trades", authenticateUser, async (req: any, res) => {
+  try {
+    const report = await dbService.diagnoseAndRecoverUserState(req.userEmail);
+    res.json(report);
+  } catch (error: any) {
+    console.error("Trade recovery failed:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Admin System endpoint
 app.get("/api/admin/users", authenticateUser, async (req: any, res) => {
   try {
